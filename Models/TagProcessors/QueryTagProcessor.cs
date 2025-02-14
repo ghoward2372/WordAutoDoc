@@ -32,19 +32,24 @@ namespace DocumentProcessor.Models.TagProcessors
             if (!workItems.Any())
                 return "No work items found.";
 
-            // Convert work items to table format
-            var tableData = workItems.Select(wi => new[]
-            {
-                wi.Id.ToString(),
-                GetFieldValue(wi.Fields, "System.Title"),
-                GetFieldValue(wi.Fields, "System.State")
-            }).ToArray();
+            // Convert work items to table format with explicit null handling
+            var tableData = workItems
+                .Select(wi => new[]
+                {
+                    wi.Id.ToString(),
+                    GetFieldValue(wi.Fields, "System.Title"),
+                    GetFieldValue(wi.Fields, "System.State")
+                })
+                .ToArray();
 
             // Add header row
             var headerRow = new[] { "ID", "Title", "State" };
-            var fullTable = new[] { headerRow }.Concat(tableData).ToArray();
+            var fullTableData = new[] { headerRow }
+                .Concat(tableData)
+                .Select(row => row.Select(cell => cell ?? string.Empty).ToArray())
+                .ToArray();
 
-            return ConvertToMarkdownTable(fullTable);
+            return ConvertToMarkdownTable(fullTableData);
         }
 
         private static string GetFieldValue(IDictionary<string, object> fields, string fieldName)
@@ -66,8 +71,7 @@ namespace DocumentProcessor.Models.TagProcessors
             // Data rows
             for (int i = 1; i < tableData.Length; i++)
             {
-                var row = tableData[i].Select(cell => cell ?? string.Empty).ToArray();
-                table.AppendLine(string.Join(" | ", row));
+                table.AppendLine(string.Join(" | ", tableData[i]));
             }
 
             return table.ToString();
