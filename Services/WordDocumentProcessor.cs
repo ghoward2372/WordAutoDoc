@@ -20,12 +20,17 @@ namespace DocumentProcessor.Services
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
-            _tagProcessors = new Dictionary<string, ITagProcessor>
+            _tagProcessors = new Dictionary<string, ITagProcessor>();
+
+            // Always add AcronymTable processor
+            _tagProcessors.Add("AcronymTable", new AcronymTableTagProcessor(options.AcronymProcessor));
+
+            // Only add Azure DevOps related processors if service is available
+            if (options.AzureDevOpsService != null)
             {
-                { "WorkItem", new WorkItemTagProcessor(options.AzureDevOpsService, options.HtmlConverter) },
-                { "QueryID", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter) },
-                { "AcronymTable", new AcronymTableTagProcessor(options.AcronymProcessor) }
-            };
+                _tagProcessors.Add("WorkItem", new WorkItemTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
+                _tagProcessors.Add("QueryID", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
+            }
         }
 
         public async Task ProcessDocumentAsync()
@@ -75,9 +80,18 @@ namespace DocumentProcessor.Services
 
                 foreach (Match match in matches)
                 {
-                    var tagContent = match.Groups[1].Value;
-                    var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent);
-                    text = text.Replace(match.Value, processedContent);
+                    try
+                    {
+                        var tagContent = match.Groups[1].Value;
+                        var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent);
+                        text = text.Replace(match.Value, processedContent);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log the error but continue processing
+                        Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
+                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag]");
+                    }
                 }
             }
 

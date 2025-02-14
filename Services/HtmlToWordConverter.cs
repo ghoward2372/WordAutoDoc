@@ -2,7 +2,6 @@ using System;
 using System.Text.RegularExpressions;
 using System.Net;
 using DocumentFormat.OpenXml.Wordprocessing;
-using System.Collections.Generic;
 
 namespace DocumentProcessor.Services
 {
@@ -34,7 +33,7 @@ namespace DocumentProcessor.Services
         public Table CreateTable(string[][] data)
         {
             if (data == null || data.Length == 0)
-                return new Table();
+                throw new ArgumentException("Table data cannot be null or empty");
 
             var table = new Table();
             var props = new TableProperties(
@@ -49,12 +48,12 @@ namespace DocumentProcessor.Services
             );
             table.AppendChild(props);
 
-            for (int i = 0; i < data.Length; i++)
+            foreach (var row in data)
             {
                 var tr = new TableRow();
-                for (int j = 0; j < data[i].Length; j++)
+                foreach (var cell in row)
                 {
-                    var tc = new TableCell(new Paragraph(new Run(new Text(data[i][j] ?? string.Empty))));
+                    var tc = new TableCell(new Paragraph(new Run(new Text(cell ?? string.Empty))));
                     tr.AppendChild(tc);
                 }
                 table.AppendChild(tr);

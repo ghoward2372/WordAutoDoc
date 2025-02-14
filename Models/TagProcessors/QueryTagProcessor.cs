@@ -9,13 +9,13 @@ namespace DocumentProcessor.Models.TagProcessors
 {
     public class QueryTagProcessor : ITagProcessor
     {
-        private readonly AzureDevOpsService _azureDevOpsService;
-        private readonly HtmlToWordConverter _htmlConverter;
+        private readonly IAzureDevOpsService _azureDevOpsService;
+        private readonly IHtmlToWordConverter _htmlConverter;
 
-        public QueryTagProcessor(AzureDevOpsService azureDevOpsService, HtmlToWordConverter htmlConverter)
+        public QueryTagProcessor(IAzureDevOpsService azureDevOpsService, IHtmlToWordConverter htmlConverter)
         {
-            _azureDevOpsService = azureDevOpsService;
-            _htmlConverter = htmlConverter;
+            _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
+            _htmlConverter = htmlConverter ?? throw new ArgumentNullException(nameof(htmlConverter));
         }
 
         public async Task<string> ProcessTagAsync(string tagContent)
@@ -32,7 +32,7 @@ namespace DocumentProcessor.Models.TagProcessors
             if (!workItems.Any())
                 return "No work items found.";
 
-            // Convert work items to table format with non-null values
+            // Convert work items to table format
             var tableData = workItems.Select(wi => new[]
             {
                 wi.Id.ToString(),
@@ -54,6 +54,9 @@ namespace DocumentProcessor.Models.TagProcessors
 
         private string ConvertToMarkdownTable(string[][] tableData)
         {
+            if (tableData == null || tableData.Length == 0)
+                return string.Empty;
+
             var table = new System.Text.StringBuilder();
 
             // Header
@@ -63,7 +66,8 @@ namespace DocumentProcessor.Models.TagProcessors
             // Data rows
             for (int i = 1; i < tableData.Length; i++)
             {
-                table.AppendLine(string.Join(" | ", tableData[i]));
+                var row = tableData[i].Select(cell => cell ?? string.Empty).ToArray();
+                table.AppendLine(string.Join(" | ", row));
             }
 
             return table.ToString();

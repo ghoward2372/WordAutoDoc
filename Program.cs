@@ -33,36 +33,18 @@ namespace DocumentProcessor
                 string sourceFile = args[0];
                 string outputFile = args[1];
 
-                // Initialize Azure DevOps connection
-                var organization = Environment.GetEnvironmentVariable("ADO_ORGANIZATION");
-                var pat = Environment.GetEnvironmentVariable("ADO_PAT");
-
-                if (string.IsNullOrEmpty(organization) || string.IsNullOrEmpty(pat))
-                {
-                    throw new Exception("Azure DevOps organization and PAT must be set in environment variables.");
-                }
-
-                var credentials = new VssBasicCredential(string.Empty, pat);
-                var connection = new VssConnection(new Uri($"https://dev.azure.com/{organization}"), credentials);
-                var witClient = connection.GetClient<WorkItemTrackingHttpClient>();
-
-                // Initialize services
-                var azureDevOpsService = new AzureDevOpsService(witClient);
-                var acronymProcessor = new AcronymProcessor();
-                var htmlConverter = new HtmlToWordConverter();
-
+                // Create a minimal processor that only handles acronyms
                 var options = new DocumentProcessingOptions
                 {
                     SourcePath = sourceFile,
                     OutputPath = outputFile,
-                    AzureDevOpsService = azureDevOpsService,
-                    AcronymProcessor = acronymProcessor,
-                    HtmlConverter = htmlConverter
+                    AzureDevOpsService = null,
+                    AcronymProcessor = new AcronymProcessor(),
+                    HtmlConverter = new HtmlToWordConverter()
                 };
 
                 var processor = new WordDocumentProcessor(options);
                 await processor.ProcessDocumentAsync();
-
                 Console.WriteLine("Document processing completed successfully.");
             }
             catch (Exception ex)
