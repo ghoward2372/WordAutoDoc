@@ -1,0 +1,69 @@
+modules = ["csharp", "dotnet-7.0"]
+
+[nix]
+channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "C# Document Processor"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "C# Document Processor Test"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Test Runner"
+
+[[workflows.workflow]]
+name = "C# Document Processor"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "dotnet restore && dotnet build && dotnet run -- --create-test"
+
+[[workflows.workflow]]
+name = "C# Document Processor Test"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "dotnet run -- test_document.docx processed_document.docx"
+
+[[workflows.workflow]]
+name = "Test Runner"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "dotnet restore && dotnet test"
+
+[deployment]
+run = ["sh", "-c", "dotnet restore && dotnet build && dotnet run -- --create-test"]
