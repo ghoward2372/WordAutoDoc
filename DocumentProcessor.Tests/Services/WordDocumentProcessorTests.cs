@@ -186,6 +186,28 @@ namespace DocumentProcessor.Tests.Services
             _mockHtmlConverter.Verify(x => x.CreateTable(It.IsAny<string[][]>()), Times.Once);
         }
 
+        [Fact]
+        public void ExtractTextFromXml_WithComplexWordXml_ExtractsTextContent()
+        {
+            // Arrange
+            var complexXml = @"<w:tcPr xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""><w:tcW w:type=""auto"" /><w:vAlign w:val=""center"" /><w:shd w:fill=""EEEEEE"" /></w:tcPr><w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""><w:pPr><w:jc w:val=""center"" /><w:spacing w:before=""0"" w:after=""0"" /></w:pPr><w:r><w:rPr><w:b /></w:rPr><w:t>ID</w:t></w:r></w:p>";
+            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
+            {
+                SourcePath = "test.docx",
+                OutputPath = "output.docx",
+                AzureDevOpsService = null,
+                AcronymProcessor = new AcronymProcessor(),
+                HtmlConverter = new HtmlToWordConverter()
+            });
+
+            // Act
+            string result = processor.ExtractTextFromXml(complexXml);
+
+            // Assert
+            Assert.Equal("ID", result);
+        }
+
+
         public void Dispose()
         {
             // Cleanup

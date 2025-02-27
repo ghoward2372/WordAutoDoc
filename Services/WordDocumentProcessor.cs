@@ -274,7 +274,7 @@ namespace DocumentProcessor.Services
             }
         }
 
-        private string ExtractTextFromXml(string xml)
+        public string ExtractTextFromXml(string xml)
         {
             try
             {
@@ -283,17 +283,16 @@ namespace DocumentProcessor.Services
 
                 Console.WriteLine($"Processing XML content: {xml}");
 
-                // First pass: Extract text content from w:t tags
-                var textMatches = Regex.Matches(xml, @"<w:t[^>]*>(.*?)</w:t>");
-                if (textMatches.Count > 0)
+                // First pass: Extract text specifically from Word text tags
+                var matches = Regex.Matches(xml, @"<w:t(?:\s[^>]*)?>(.*?)</w:t>");
+                if (matches.Count > 0)
                 {
-                    // Combine all text contents and clean
-                    string combined = string.Join(" ", textMatches.Cast<Match>().Select(m => m.Groups[1].Value));
-                    Console.WriteLine($"Extracted text from w:t tags: {combined}");
-                    return combined.Trim();
+                    string textContent = string.Join(" ", matches.Cast<Match>().Select(m => m.Groups[1].Value));
+                    Console.WriteLine($"Extracted Word text content: {textContent}");
+                    return textContent.Trim();
                 }
 
-                // Fallback: Remove all XML tags recursively if no w:t tags found
+                // Fallback for non-Word XML: Remove all XML tags recursively
                 string withoutTags = xml;
                 string previousResult;
                 do
@@ -303,7 +302,7 @@ namespace DocumentProcessor.Services
                     Console.WriteLine($"Cleaning pass result: {withoutTags}");
                 } while (withoutTags != previousResult);
 
-                // Decode HTML entities and clean up whitespace
+                // Clean up the result
                 string decoded = System.Net.WebUtility.HtmlDecode(withoutTags);
                 string normalized = Regex.Replace(decoded, @"\s+", " ").Trim();
 
@@ -313,8 +312,7 @@ namespace DocumentProcessor.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Error extracting text from XML: {ex.Message}");
-                // If any error occurs during processing, return cleaned original text
-                return Regex.Replace(xml, @"\s+", " ").Trim();
+                return string.Empty;
             }
         }
     }
