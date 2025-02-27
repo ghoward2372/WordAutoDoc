@@ -25,7 +25,7 @@ namespace DocumentProcessor.Services
 
                 if (config.TryGetProperty("AzureDevOps", out var adoConfig))
                 {
-                    return JsonSerializer.Deserialize<AzureDevOpsConfig>(adoConfig.ToString()) 
+                    return JsonSerializer.Deserialize<AzureDevOpsConfig>(adoConfig.GetRawText()) 
                         ?? new AzureDevOpsConfig();
                 }
 
