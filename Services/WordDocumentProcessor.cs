@@ -235,7 +235,11 @@ namespace DocumentProcessor.Services
 
                                     cell.AppendChild(cellProps);
 
-                                    string cellContent = xmlReader.ReadInnerXml();
+                                    // Get the raw XML content
+                                    string rawXml = xmlReader.ReadInnerXml();
+
+                                    // Extract plain text from XML content
+                                    string cellContent = ExtractTextFromXml(rawXml);
                                     Console.WriteLine($"Adding cell content: {cellContent}");
 
                                     var paragraph = new Paragraph(
@@ -267,6 +271,45 @@ namespace DocumentProcessor.Services
                 Console.WriteLine($"Error creating table: {ex.Message}");
                 Console.WriteLine($"Table XML content: {tableXml}");
                 throw new Exception($"Error creating table from XML: {ex.Message}", ex);
+            }
+        }
+
+        private string ExtractTextFromXml(string xml)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(xml))
+                    return string.Empty;
+
+                Console.WriteLine($"Processing XML content: {xml}");
+
+                // First pass: Remove CDATA sections and extract their content
+                string withoutCData = Regex.Replace(xml, @"<!\[CDATA\[(.*?)\]\]>", "$1");
+
+                // Second pass: Remove all XML/HTML tags recursively until no more tags are found
+                string withoutTags = withoutCData;
+                string previousResult;
+                do
+                {
+                    previousResult = withoutTags;
+                    withoutTags = Regex.Replace(previousResult, @"<[^>]+>", string.Empty);
+                    Console.WriteLine($"Cleaning pass result: {withoutTags}");
+                } while (withoutTags != previousResult);
+
+                // Third pass: Decode HTML/XML entities
+                string decoded = System.Net.WebUtility.HtmlDecode(withoutTags);
+
+                // Fourth pass: Clean up whitespace
+                string normalized = Regex.Replace(decoded, @"\s+", " ").Trim();
+
+                Console.WriteLine($"Extracted text content: {normalized}");
+                return normalized;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error extracting text from XML: {ex.Message}");
+                // If any error occurs during processing, return cleaned original text
+                return Regex.Replace(xml, @"\s+", " ").Trim();
             }
         }
     }
