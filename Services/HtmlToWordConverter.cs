@@ -44,19 +44,25 @@ namespace DocumentProcessor.Services
                     new RightBorder { Val = BorderValues.Single },
                     new InsideHorizontalBorder { Val = BorderValues.Single },
                     new InsideVerticalBorder { Val = BorderValues.Single }
-                )
+                ),
+                new TableWidth { Type = TableWidthUnitValues.Auto }
             );
             table.AppendChild(props);
 
-            foreach (var row in data)
+            foreach (var rowData in data)
             {
-                var tr = new TableRow();
-                foreach (var cell in row)
+                var row = new TableRow();
+                foreach (var cellData in rowData)
                 {
-                    var tc = new TableCell(new Paragraph(new Run(new Text(cell ?? string.Empty))));
-                    tr.AppendChild(tc);
+                    var cell = new TableCell();
+                    var cellProps = new TableCellProperties(
+                        new TableCellWidth { Type = TableWidthUnitValues.Auto }
+                    );
+                    cell.AppendChild(cellProps);
+                    cell.AppendChild(new Paragraph(new Run(new Text(cellData ?? string.Empty))));
+                    row.AppendChild(cell);
                 }
-                table.AppendChild(tr);
+                table.AppendChild(row);
             }
 
             return table;

@@ -6,9 +6,11 @@ using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.IO;
+using System.Xml;
 
 namespace DocumentProcessor.Services
 {
@@ -57,22 +59,33 @@ namespace DocumentProcessor.Services
 
         private async Task ProcessDocumentContentAsync(Body body)
         {
-            foreach (var paragraph in body.Elements<Paragraph>())
+            var paragraphsToProcess = body.Elements<Paragraph>().ToList();
+
+            foreach (var paragraph in paragraphsToProcess)
             {
                 string text = paragraph.InnerText;
-                string processedText = await ProcessTextAsync(text);
+                var result = await ProcessTextAsync(text);
 
-                if (text != processedText)
+                if (result.IsTable)
+                {
+                    // Insert the table before the current paragraph
+                    paragraph.InsertBeforeSelf(result.TableElement!);
+                    // Remove the original paragraph that contained the tag
+                    paragraph.Remove();
+                }
+                else if (text != result.ProcessedText)
                 {
                     // Replace the paragraph content with processed text
                     paragraph.RemoveAllChildren();
-                    paragraph.AppendChild(new Run(new Text(processedText)));
+                    paragraph.AppendChild(new Run(new Text(result.ProcessedText)));
                 }
             }
         }
 
-        private async Task<string> ProcessTextAsync(string text)
+        private async Task<ProcessingResult> ProcessTextAsync(string text)
         {
+            var result = new ProcessingResult { ProcessedText = text };
+
             foreach (var tagProcessor in _tagProcessors)
             {
                 var pattern = RegexPatterns.GetTagPattern(tagProcessor.Key);
@@ -84,6 +97,14 @@ namespace DocumentProcessor.Services
                     {
                         var tagContent = match.Groups[1].Value;
                         var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent);
+
+                        if (IsTableXml(processedContent))
+                        {
+                            result.IsTable = true;
+                            result.TableElement = CreateTableFromXml(processedContent);
+                            return result;
+                        }
+
                         text = text.Replace(match.Value, processedContent);
                     }
                     catch (Exception ex)
@@ -95,8 +116,60 @@ namespace DocumentProcessor.Services
                 }
             }
 
-            text = _options.AcronymProcessor.ProcessText(text);
-            return text;
+            result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
+            return result;
+        }
+
+        private bool IsTableXml(string content)
+        {
+            return content?.StartsWith("<w:tbl") ?? false;
+        }
+
+        private Table CreateTableFromXml(string tableXml)
+        {
+            try
+            {
+                using (var stringReader = new StringReader(tableXml))
+                using (var xmlReader = XmlReader.Create(stringReader))
+                {
+                    var table = new Table();
+                    var props = new TableProperties(
+                        new TableBorders(
+                            new TopBorder { Val = BorderValues.Single },
+                            new BottomBorder { Val = BorderValues.Single },
+                            new LeftBorder { Val = BorderValues.Single },
+                            new RightBorder { Val = BorderValues.Single },
+                            new InsideHorizontalBorder { Val = BorderValues.Single },
+                            new InsideVerticalBorder { Val = BorderValues.Single }
+                        )
+                    );
+                    table.AppendChild(props);
+
+                    while (xmlReader.Read())
+                    {
+                        if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.Name == "w:tr")
+                        {
+                            var row = new TableRow();
+                            while (xmlReader.Read() && !(xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.Name == "w:tr"))
+                            {
+                                if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.Name == "w:tc")
+                                {
+                                    var cell = new TableCell(new Paragraph(new Run(new Text(xmlReader.ReadInnerXml()))));
+                                    row.AppendChild(cell);
+                                }
+                            }
+                            table.AppendChild(row);
+                        }
+                    }
+
+                    return table;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error creating table from XML: {ex.Message}\nXML content: {tableXml}");
+                throw new Exception($"Error creating table from XML: {ex.Message}", ex);
+            }
         }
     }
 }

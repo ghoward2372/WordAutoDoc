@@ -6,6 +6,8 @@ using Moq;
 using Xunit;
 using DocumentFormat.OpenXml.Packaging;
 using System.IO;
+using DocumentFormat.OpenXml.Wordprocessing;
+using System.Linq;
 
 namespace DocumentProcessor.Tests.Services
 {
@@ -106,6 +108,42 @@ namespace DocumentProcessor.Tests.Services
 
             _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(1234), Times.Once);
             _mockHtmlConverter.Verify(x => x.ConvertHtmlToWordFormat("<p>Test work item content</p>"), Times.Once);
+        }
+
+        [Fact]
+        public async Task ProcessDocument_WithTableTag_CreatesWordTable()
+        {
+            // Arrange
+            var tableXml = @"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:tr><w:tc><w:p><w:r><w:t>Test</w:t></w:r></w:p></w:tc></w:tr>
+            </w:tbl>";
+
+            _mockHtmlConverter
+                .Setup(x => x.ConvertHtmlToWordFormat(It.IsAny<string>()))
+                .Returns(tableXml);
+
+            var options = new DocumentProcessingOptions
+            {
+                SourcePath = _testFilePath,
+                OutputPath = _outputFilePath,
+                AzureDevOpsService = _mockAzureDevOpsService.Object,
+                AcronymProcessor = _acronymProcessor,
+                HtmlConverter = _mockHtmlConverter.Object
+            };
+
+            var processor = new WordDocumentProcessor(options);
+
+            // Act
+            await processor.ProcessDocumentAsync();
+
+            // Assert
+            Assert.True(File.Exists(_outputFilePath));
+            using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
+            {
+                var mainPart = doc.MainDocumentPart;
+                var tables = mainPart.Document.Body.Elements<Table>();
+                Assert.True(tables.Any());
+            }
         }
 
         public void Dispose()
