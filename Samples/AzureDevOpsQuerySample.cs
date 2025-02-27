@@ -32,7 +32,7 @@ namespace DocumentProcessor.Samples
                 // Step 1: Get the stored query ID
                 QueryHierarchyItem query = await _workItemClient.GetQueryAsync(_project, queryPath);
 
-                if (query == null || query.Id == null)
+                if (query == null || query.Id == Guid.Empty)
                 {
                     Console.WriteLine($"Query '{queryPath}' not found.");
                     return new List<WorkItem>();
@@ -41,9 +41,9 @@ namespace DocumentProcessor.Samples
                 Console.WriteLine($"Query found! Executing query: {query.Name}");
 
                 // Step 2: Execute the stored query to get work item references
-                WorkItemQueryResult queryResult = await _workItemClient.QueryByIdAsync(query.Id.Value);
+                WorkItemQueryResult queryResult = await _workItemClient.QueryByIdAsync(query.Id);
 
-                if (queryResult.WorkItems.Count == 0)
+                if (queryResult.WorkItems.Count() == 0)
                 {
                     Console.WriteLine("No work items found for this query.");
                     return new List<WorkItem>();

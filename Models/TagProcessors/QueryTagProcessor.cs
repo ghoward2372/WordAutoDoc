@@ -23,6 +23,11 @@ namespace DocumentProcessor.Models.TagProcessors
         {
             try
             {
+                if (!Guid.TryParse(tagContent, out var queryId))
+                {
+                    return "Invalid query ID format. Expected a GUID.";
+                }
+
                 // First get the query definition to determine columns
                 var query = await _azureDevOpsService.GetQueryAsync(tagContent);
                 if (query?.Columns == null || !query.Columns.Any())
