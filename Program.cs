@@ -1,6 +1,3 @@
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
-using Microsoft.VisualStudio.Services.Common;
-using Microsoft.VisualStudio.Services.WebApi;
 using DocumentProcessor.Services;
 using DocumentProcessor.Models;
 using DocumentProcessor.Tests;
@@ -33,12 +30,24 @@ namespace DocumentProcessor
                 string sourceFile = args[0];
                 string outputFile = args[1];
 
-                // Create a minimal processor that only handles acronyms
+                // Initialize services with configuration
+                IAzureDevOpsService? adoService = null;
+                try
+                {
+                    adoService = AzureDevOpsService.Initialize();
+                    Console.WriteLine("Successfully connected to Azure DevOps.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Azure DevOps integration not available - {ex.Message}");
+                    Console.WriteLine("Continuing with limited functionality (acronym processing only).");
+                }
+
                 var options = new DocumentProcessingOptions
                 {
                     SourcePath = sourceFile,
                     OutputPath = outputFile,
-                    AzureDevOpsService = null,
+                    AzureDevOpsService = adoService,
                     AcronymProcessor = new AcronymProcessor(),
                     HtmlConverter = new HtmlToWordConverter()
                 };

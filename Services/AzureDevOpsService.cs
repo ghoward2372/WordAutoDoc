@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Linq;
+using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Services
 {
@@ -25,19 +26,11 @@ namespace DocumentProcessor.Services
             _witClient = witClient ?? throw new ArgumentNullException(nameof(witClient));
         }
 
-        public static AzureDevOpsService Initialize(string organization, string pat)
+        public static AzureDevOpsService Initialize()
         {
-            if (string.IsNullOrEmpty(organization))
-                throw new ArgumentException("Azure DevOps organization name is required");
-
-            if (string.IsNullOrEmpty(pat))
-                throw new ArgumentException("Personal Access Token (PAT) is required");
-
-            // Clean the organization name (remove any https:// or dev.azure.com if included)
-            organization = organization.Replace("https://", "").Replace("dev.azure.com/", "").Trim('/');
-
-            var credentials = new VssBasicCredential(string.Empty, pat);
-            var connection = new VssConnection(new Uri($"https://dev.azure.com/{organization}"), credentials);
+            var config = ConfigurationService.LoadAzureDevOpsConfig();
+            var credentials = new VssBasicCredential(string.Empty, config.PersonalAccessToken);
+            var connection = new VssConnection(new Uri(config.GetConnectionUrl()), credentials);
 
             try
             {
@@ -60,8 +53,8 @@ namespace DocumentProcessor.Services
                     throw new InvalidOperationException($"Work item {workItemId} or its fields are null");
                 }
 
-                return workItem.Fields.TryGetValue("DocumentText", out object? value) 
-                    ? value?.ToString() ?? string.Empty 
+                return workItem.Fields.TryGetValue("DocumentText", out object? value)
+                    ? value?.ToString() ?? string.Empty
                     : string.Empty;
             }
             catch (Exception ex)

@@ -45,3 +45,7 @@ bld/
 **/packages/*
 *.nuget.props
 *.nuget.targets
+
+## Configuration files with sensitive data
+appsettings.*.json
+!appsettings.json
