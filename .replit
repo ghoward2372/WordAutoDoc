@@ -23,6 +23,10 @@ args = "C# Document Processor Test"
 task = "workflow.run"
 args = "Test Runner"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Document Processing Test"
+
 [[workflows.workflow]]
 name = "C# Document Processor"
 author = "agent"
@@ -64,6 +68,20 @@ task = "packager.installForAll"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "dotnet restore && dotnet test"
+
+[[workflows.workflow]]
+name = "Document Processing Test"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "dotnet run -- test_document.docx processed_document.docx"
 
 [deployment]
 run = ["sh", "-c", "dotnet restore && dotnet build && dotnet run -- --create-test"]
