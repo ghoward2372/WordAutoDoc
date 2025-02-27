@@ -23,7 +23,7 @@ namespace DocumentProcessor.Services
             _tagProcessors = new Dictionary<string, ITagProcessor>();
 
             // Always add AcronymTable processor
-            _tagProcessors.Add("AcronymTable", new AcronymTableTagProcessor(options.AcronymProcessor));
+            _tagProcessors.Add("AcronymTable", new AcronymTableTagProcessor(options.AcronymProcessor, options.HtmlConverter));
 
             // Only add Azure DevOps related processors if service is available
             if (options.AzureDevOpsService != null)

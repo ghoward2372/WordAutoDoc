@@ -32,49 +32,26 @@ namespace DocumentProcessor.Models.TagProcessors
             if (!workItems.Any())
                 return "No work items found.";
 
-            // Convert work items to table format with explicit null handling
-            var tableData = workItems
-                .Select(wi => new[]
+            // Create table header row
+            var tableData = new[]
+            {
+                new[] { "ID", "Title", "State" }
+            }.Concat(
+                workItems.Select(wi => new[]
                 {
                     wi.Id.ToString(),
                     GetFieldValue(wi.Fields, "System.Title"),
                     GetFieldValue(wi.Fields, "System.State")
                 })
-                .ToArray();
+            ).ToArray();
 
-            // Add header row
-            var headerRow = new[] { "ID", "Title", "State" };
-            var fullTableData = new[] { headerRow }
-                .Concat(tableData)
-                .Select(row => row.Select(cell => cell ?? string.Empty).ToArray())
-                .ToArray();
-
-            return ConvertToMarkdownTable(fullTableData);
+            var table = _htmlConverter.CreateTable(tableData);
+            return table.OuterXml;
         }
 
         private static string GetFieldValue(IDictionary<string, object> fields, string fieldName)
         {
             return fields.TryGetValue(fieldName, out var value) ? value?.ToString() ?? string.Empty : string.Empty;
-        }
-
-        private string ConvertToMarkdownTable(string[][] tableData)
-        {
-            if (tableData == null || tableData.Length == 0)
-                return string.Empty;
-
-            var table = new System.Text.StringBuilder();
-
-            // Header
-            table.AppendLine(string.Join(" | ", tableData[0]));
-            table.AppendLine(string.Join(" | ", tableData[0].Select(_ => "---")));
-
-            // Data rows
-            for (int i = 1; i < tableData.Length; i++)
-            {
-                table.AppendLine(string.Join(" | ", tableData[i]));
-            }
-
-            return table.ToString();
         }
     }
 }

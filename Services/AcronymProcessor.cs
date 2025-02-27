@@ -53,6 +53,11 @@ namespace DocumentProcessor.Services
             return string.Join(" ", capitalizedWords);
         }
 
+        public Dictionary<string, string> GetAcronyms()
+        {
+            return new Dictionary<string, string>(_acronyms);
+        }
+
         public string GenerateAcronymTable()
         {
             if (_acronyms.Count == 0)
