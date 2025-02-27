@@ -13,27 +13,22 @@ A C# command line tool for processing Word documents with Azure DevOps integrati
 ## Requirements
 
 - .NET 7.0
-- Azure DevOps Organization and Personal Access Token (PAT)
+- Azure DevOps connection settings configured in appsettings.json
 
 ## Setup
 
-1. Set environment variables:
-   ```bash
-   ADO_ORGANIZATION=your-organization
-   ADO_PAT=your-personal-access-token
-   ```
-
-2. (Optional) Configure appsettings.json:
+1. Configure appsettings.json:
    ```json
    {
      "AzureDevOps": {
-       "Organization": "",  // Optional, can use ADO_ORGANIZATION env var
+       "Organization": "your-organization-name",
+       "PersonalAccessToken": "your-personal-access-token",
        "BaseUrl": "https://dev.azure.com"
      }
    }
    ```
 
-3. Build the project:
+2. Build the project:
    ```bash
    dotnet restore
    dotnet build
@@ -66,12 +61,8 @@ dotnet test
 
 ## Configuration
 
-The application uses a combination of appsettings.json and environment variables for configuration:
+The application uses appsettings.json for all configuration:
 
-- Environment Variables (required for sensitive data):
-  - ADO_PAT: Azure DevOps Personal Access Token
-  - ADO_ORGANIZATION: Azure DevOps Organization name
-
-- appsettings.json (optional):
-  - AzureDevOps.Organization: Can override ADO_ORGANIZATION
-  - AzureDevOps.BaseUrl: Base URL for Azure DevOps API (default: https://dev.azure.com)
+- AzureDevOps.Organization: Your Azure DevOps organization name
+- AzureDevOps.PersonalAccessToken: Your Azure DevOps Personal Access Token
+- AzureDevOps.BaseUrl: Base URL for Azure DevOps API (default: https://dev.azure.com)

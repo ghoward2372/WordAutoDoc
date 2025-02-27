@@ -46,6 +46,6 @@ bld/
 *.nuget.props
 *.nuget.targets
 
-## Configuration files with sensitive data
+## Configuration files containing sensitive data
+appsettings.json
 appsettings.*.json
-!appsettings.json
