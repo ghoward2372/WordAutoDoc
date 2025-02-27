@@ -1,6 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 using System.Net;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocumentProcessor.Services

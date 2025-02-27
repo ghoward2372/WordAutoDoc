@@ -146,6 +146,46 @@ namespace DocumentProcessor.Tests.Services
             }
         }
 
+        [Fact]
+        public async Task ProcessDocument_WithAcronymTableTag_CreatesWordTable()
+        {
+            // Arrange
+            var tableXml = @"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:tr><w:tc><w:p><w:r><w:t>Acronym</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Definition</w:t></w:r></w:p></w:tc></w:tr>
+                <w:tr><w:tc><w:p><w:r><w:t>API</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Application Programming Interface</w:t></w:r></w:p></w:tc></w:tr>
+            </w:tbl>";
+
+            _mockHtmlConverter
+                .Setup(x => x.CreateTable(It.IsAny<string[][]>()))
+                .Returns(new Table());
+
+            var options = new DocumentProcessingOptions
+            {
+                SourcePath = _testFilePath,
+                OutputPath = _outputFilePath,
+                AzureDevOpsService = null,
+                AcronymProcessor = _acronymProcessor,
+                HtmlConverter = _mockHtmlConverter.Object
+            };
+
+            var processor = new WordDocumentProcessor(options);
+
+            // Act
+            await processor.ProcessDocumentAsync();
+
+            // Assert
+            Assert.True(File.Exists(_outputFilePath));
+            using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
+            {
+                var mainPart = doc.MainDocumentPart;
+                Assert.NotNull(mainPart?.Document?.Body);
+                var tables = mainPart.Document.Body.Elements<Table>();
+                Assert.True(tables.Any());
+            }
+
+            _mockHtmlConverter.Verify(x => x.CreateTable(It.IsAny<string[][]>()), Times.Once);
+        }
+
         public void Dispose()
         {
             // Cleanup

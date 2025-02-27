@@ -109,7 +109,6 @@ namespace DocumentProcessor.Services
                     }
                     catch (Exception ex)
                     {
-                        // Log the error but continue processing
                         Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
                         text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag]");
                     }
@@ -129,41 +128,53 @@ namespace DocumentProcessor.Services
         {
             try
             {
+                var table = new Table();
+                var props = new TableProperties(
+                    new TableBorders(
+                        new TopBorder { Val = BorderValues.Single },
+                        new BottomBorder { Val = BorderValues.Single },
+                        new LeftBorder { Val = BorderValues.Single },
+                        new RightBorder { Val = BorderValues.Single },
+                        new InsideHorizontalBorder { Val = BorderValues.Single },
+                        new InsideVerticalBorder { Val = BorderValues.Single }
+                    ),
+                    new TableWidth { Type = TableWidthUnitValues.Auto }
+                );
+                table.AppendChild(props);
+
+                // Parse the XML to extract row and cell data
                 using (var stringReader = new StringReader(tableXml))
                 using (var xmlReader = XmlReader.Create(stringReader))
                 {
-                    var table = new Table();
-                    var props = new TableProperties(
-                        new TableBorders(
-                            new TopBorder { Val = BorderValues.Single },
-                            new BottomBorder { Val = BorderValues.Single },
-                            new LeftBorder { Val = BorderValues.Single },
-                            new RightBorder { Val = BorderValues.Single },
-                            new InsideHorizontalBorder { Val = BorderValues.Single },
-                            new InsideVerticalBorder { Val = BorderValues.Single }
-                        )
-                    );
-                    table.AppendChild(props);
-
                     while (xmlReader.Read())
                     {
-                        if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.Name == "w:tr")
+                        if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tr")
                         {
                             var row = new TableRow();
-                            while (xmlReader.Read() && !(xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.Name == "w:tr"))
+
+                            // Read cells until we reach the end of the row
+                            while (xmlReader.Read() && !(xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tr"))
                             {
-                                if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.Name == "w:tc")
+                                if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tc")
                                 {
-                                    var cell = new TableCell(new Paragraph(new Run(new Text(xmlReader.ReadInnerXml()))));
+                                    var cell = new TableCell();
+                                    var cellProps = new TableCellProperties(
+                                        new TableCellWidth { Type = TableWidthUnitValues.Auto }
+                                    );
+                                    cell.AppendChild(cellProps);
+
+                                    // Get the text content of the cell
+                                    string cellContent = xmlReader.ReadInnerXml();
+                                    cell.AppendChild(new Paragraph(new Run(new Text(cellContent))));
                                     row.AppendChild(cell);
                                 }
                             }
                             table.AppendChild(row);
                         }
                     }
-
-                    return table;
                 }
+
+                return table;
             }
             catch (Exception ex)
             {
