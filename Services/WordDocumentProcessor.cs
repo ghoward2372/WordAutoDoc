@@ -287,9 +287,13 @@ namespace DocumentProcessor.Services
                 var matches = Regex.Matches(xml, @"<w:t(?:\s[^>]*)?>(.*?)</w:t>");
                 if (matches.Count > 0)
                 {
-                    string textContent = string.Join(" ", matches.Cast<Match>().Select(m => m.Groups[1].Value));
+                    // Join text elements with a single space and normalize whitespace
+                    string textContent = string.Join(" ",
+                        matches.Cast<Match>()
+                               .Select(m => m.Groups[1].Value.Trim())
+                               .Where(s => !string.IsNullOrWhiteSpace(s)));
                     Console.WriteLine($"Extracted Word text content: {textContent}");
-                    return textContent.Trim();
+                    return textContent;
                 }
 
                 // Fallback for non-Word XML: Remove all XML tags recursively
