@@ -207,6 +207,76 @@ namespace DocumentProcessor.Tests.Services
             Assert.Equal("ID", result);
         }
 
+        [Fact]
+        public void ExtractTextFromXml_WithMultipleTextElements_ExtractsAllText()
+        {
+            // Arrange
+            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:r><w:rPr><w:b/></w:rPr><w:t>First</w:t></w:r>
+                <w:r><w:t xml:space=""preserve""> </w:t></w:r>
+                <w:r><w:rPr><w:i/></w:rPr><w:t>Second</w:t></w:r>
+            </w:p>";
+            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
+            {
+                SourcePath = "test.docx",
+                OutputPath = "output.docx",
+                AzureDevOpsService = null,
+                AcronymProcessor = new AcronymProcessor(),
+                HtmlConverter = new HtmlToWordConverter()
+            });
+
+            // Act
+            string result = processor.ExtractTextFromXml(complexXml);
+
+            // Assert
+            Assert.Equal("First Second", result);
+        }
+
+        [Fact]
+        public void ExtractTextFromXml_WithNestedFormatting_ExtractsTextContent()
+        {
+            // Arrange
+            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:pPr>
+                    <w:rPr>
+                        <w:b/>
+                        <w:i/>
+                        <w:u w:val=""single""/>
+                    </w:rPr>
+                </w:pPr>
+                <w:r>
+                    <w:rPr>
+                        <w:b/>
+                        <w:color w:val=""FF0000""/>
+                    </w:rPr>
+                    <w:t>Complex</w:t>
+                </w:r>
+                <w:r>
+                    <w:t xml:space=""preserve""> </w:t>
+                </w:r>
+                <w:r>
+                    <w:rPr>
+                        <w:i/>
+                    </w:rPr>
+                    <w:t>Formatting</w:t>
+                </w:r>
+            </w:p>";
+            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
+            {
+                SourcePath = "test.docx",
+                OutputPath = "output.docx",
+                AzureDevOpsService = null,
+                AcronymProcessor = new AcronymProcessor(),
+                HtmlConverter = new HtmlToWordConverter()
+            });
+
+            // Act
+            string result = processor.ExtractTextFromXml(complexXml);
+
+            // Assert
+            Assert.Equal("Complex Formatting", result);
+        }
+
 
         public void Dispose()
         {

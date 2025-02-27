@@ -75,7 +75,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "dotnet restore && dotnet test"
+args = "dotnet test"
 
 [[workflows.workflow]]
 name = "Document Processing Test"
