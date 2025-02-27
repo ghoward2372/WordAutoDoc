@@ -28,7 +28,7 @@ namespace DocumentProcessor.Models.Configuration
                     "Azure DevOps Personal Access Token (PAT) not found in configuration.");
             }
 
-            return $"{BaseUrl.TrimEnd('/')}/{Organization.TrimEnd('/')}";
+            return $"{BaseUrl.TrimEnd('/')}";
         }
     }
 }

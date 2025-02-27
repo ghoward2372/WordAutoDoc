@@ -30,7 +30,7 @@ namespace DocumentProcessor.Services
         {
             var config = ConfigurationService.LoadAzureDevOpsConfig();
             var credentials = new VssBasicCredential(string.Empty, config.PersonalAccessToken);
-            var connection = new VssConnection(new Uri(config.GetConnectionUrl()), credentials);
+            var connection = new VssConnection(new Uri(config.BaseUrl), credentials);
 
             try
             {
@@ -53,7 +53,7 @@ namespace DocumentProcessor.Services
                     throw new InvalidOperationException($"Work item {workItemId} or its fields are null");
                 }
 
-                return workItem.Fields.TryGetValue("DocumentText", out object? value)
+                return workItem.Fields.TryGetValue("CAFRS.CAFRSSystem.DocumentPart.DocumentText", out object? value)
                     ? value?.ToString() ?? string.Empty
                     : string.Empty;
             }
