@@ -12,7 +12,7 @@ A C# command line tool for processing Word documents with Azure DevOps integrati
 
 ## Requirements
 
-- .NET 7.0
+- .NET 8.0
 - Azure DevOps connection settings configured in appsettings.json
 
 ## Setup
@@ -33,6 +33,9 @@ A C# command line tool for processing Word documents with Azure DevOps integrati
      }
    }
    ```
+
+   The application uses .NET's built-in configuration system (ConfigurationManager) to handle settings,
+   making it easy to extend with additional configuration sources if needed.
 
 2. Build the project:
    ```bash
@@ -72,5 +75,10 @@ The application uses appsettings.json for all configuration:
 - AzureDevOps.Organization: Your Azure DevOps organization name
 - AzureDevOps.PersonalAccessToken: Your Azure DevOps Personal Access Token
 - AzureDevOps.BaseUrl: Base URL for Azure DevOps API (default: https://dev.azure.com)
+
+Configuration is managed through Microsoft.Extensions.Configuration, supporting:
+- JSON configuration files (appsettings.json)
+- Environment variables
+- Command-line arguments
 
 Note: Make sure to keep your appsettings.json file secure and never commit it to version control.
