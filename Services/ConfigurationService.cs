@@ -18,10 +18,21 @@ namespace DocumentProcessor.Services
                 var configuration = new ConfigurationBuilder()
                     .SetBasePath(Directory.GetCurrentDirectory())
                     .AddJsonFile(configFileName, optional: true, reloadOnChange: true)
+                    .AddEnvironmentVariables(prefix: "ADO_") // Add environment variables with ADO_ prefix
                     .Build();
 
-                var adoConfig = configuration.GetSection("AzureDevOps").Get<AzureDevOpsConfig>();
-                return adoConfig ?? new AzureDevOpsConfig();
+                var adoConfig = new AzureDevOpsConfig();
+                configuration.GetSection("AzureDevOps").Bind(adoConfig);
+
+                // Override with environment variables if they exist
+                if (!string.IsNullOrEmpty(configuration["ORGANIZATION"]))
+                    adoConfig.Organization = configuration["ORGANIZATION"];
+                if (!string.IsNullOrEmpty(configuration["PAT"]))
+                    adoConfig.PersonalAccessToken = configuration["PAT"];
+                if (!string.IsNullOrEmpty(configuration["BASEURL"]))
+                    adoConfig.BaseUrl = configuration["BASEURL"];
+
+                return adoConfig;
             }
             catch (Exception ex)
             {

@@ -13,11 +13,21 @@ A C# command line tool for processing Word documents with Azure DevOps integrati
 ## Requirements
 
 - .NET 8.0
-- Azure DevOps connection settings configured in appsettings.json
+- Azure DevOps connection settings configured in appsettings.json or environment variables
 
 ## Setup
 
-1. Configure Azure DevOps settings:
+1. Configure Azure DevOps settings using one of these methods:
+
+   a. Using environment variables (recommended for security):
+   ```bash
+   # Set these environment variables
+   export ADO_ORGANIZATION="your-organization-name"
+   export ADO_PAT="your-personal-access-token"
+   export ADO_BASEURL="https://dev.azure.com"  # Optional, defaults to https://dev.azure.com
+   ```
+
+   b. Using configuration file:
    ```bash
    # Copy the template configuration file
    cp appsettings.template.json appsettings.json
@@ -36,6 +46,8 @@ A C# command line tool for processing Word documents with Azure DevOps integrati
 
    The application uses .NET's built-in configuration system (ConfigurationManager) to handle settings,
    making it easy to extend with additional configuration sources if needed.
+
+   Note: Environment variables take precedence over appsettings.json values.
 
 2. Build the project:
    ```bash
@@ -70,15 +82,24 @@ dotnet test
 
 ## Configuration
 
-The application uses appsettings.json for all configuration:
+The application supports multiple configuration sources in the following order of precedence:
 
-- AzureDevOps.Organization: Your Azure DevOps organization name
-- AzureDevOps.PersonalAccessToken: Your Azure DevOps Personal Access Token
-- AzureDevOps.BaseUrl: Base URL for Azure DevOps API (default: https://dev.azure.com)
+1. Environment Variables (Most secure, recommended for production)
+   - ADO_ORGANIZATION: Your Azure DevOps organization name
+   - ADO_PAT: Your Azure DevOps Personal Access Token
+   - ADO_BASEURL: Base URL for Azure DevOps API (optional)
+
+2. Configuration File (appsettings.json)
+   - AzureDevOps.Organization: Your Azure DevOps organization name
+   - AzureDevOps.PersonalAccessToken: Your Azure DevOps Personal Access Token
+   - AzureDevOps.BaseUrl: Base URL for Azure DevOps API (default: https://dev.azure.com)
 
 Configuration is managed through Microsoft.Extensions.Configuration, supporting:
+- Environment variables (with ADO_ prefix)
 - JSON configuration files (appsettings.json)
-- Environment variables
 - Command-line arguments
 
-Note: Make sure to keep your appsettings.json file secure and never commit it to version control.
+Security Note: 
+- Always use environment variables for sensitive information in production environments
+- Never commit appsettings.json containing real credentials to version control
+- Ensure your Azure DevOps PAT has the minimum required permissions (read work items, execute queries)
