@@ -283,11 +283,18 @@ namespace DocumentProcessor.Services
 
                 Console.WriteLine($"Processing XML content: {xml}");
 
-                // First pass: Remove CDATA sections and extract their content
-                string withoutCData = Regex.Replace(xml, @"<!\[CDATA\[(.*?)\]\]>", "$1");
+                // First pass: Extract text content from w:t tags
+                var textMatches = Regex.Matches(xml, @"<w:t[^>]*>(.*?)</w:t>");
+                if (textMatches.Count > 0)
+                {
+                    // Combine all text contents and clean
+                    string combined = string.Join(" ", textMatches.Cast<Match>().Select(m => m.Groups[1].Value));
+                    Console.WriteLine($"Extracted text from w:t tags: {combined}");
+                    return combined.Trim();
+                }
 
-                // Second pass: Remove all XML/HTML tags recursively until no more tags are found
-                string withoutTags = withoutCData;
+                // Fallback: Remove all XML tags recursively if no w:t tags found
+                string withoutTags = xml;
                 string previousResult;
                 do
                 {
@@ -296,13 +303,11 @@ namespace DocumentProcessor.Services
                     Console.WriteLine($"Cleaning pass result: {withoutTags}");
                 } while (withoutTags != previousResult);
 
-                // Third pass: Decode HTML/XML entities
+                // Decode HTML entities and clean up whitespace
                 string decoded = System.Net.WebUtility.HtmlDecode(withoutTags);
-
-                // Fourth pass: Clean up whitespace
                 string normalized = Regex.Replace(decoded, @"\s+", " ").Trim();
 
-                Console.WriteLine($"Extracted text content: {normalized}");
+                Console.WriteLine($"Final extracted text: {normalized}");
                 return normalized;
             }
             catch (Exception ex)
