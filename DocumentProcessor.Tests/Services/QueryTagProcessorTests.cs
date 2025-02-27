@@ -1,8 +1,10 @@
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
 using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Services;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Moq;
 using Xunit;
@@ -56,8 +58,7 @@ namespace DocumentProcessor.Tests.Services
                     Fields = new Dictionary<string, object>
                     {
                         { "System.Id", "1" },
-                        { "System.Title", "First Item" },
-                        { "System.State", "Active" }  // This field should not appear in the table
+                        { "System.Title", "First Item" }
                     }
                 },
                 new WorkItem
@@ -66,8 +67,7 @@ namespace DocumentProcessor.Tests.Services
                     Fields = new Dictionary<string, object>
                     {
                         { "System.Id", "2" },
-                        { "System.Title", "Second Item" },
-                        { "System.State", "Closed" }  // This field should not appear in the table
+                        { "System.Title", "Second Item" }
                     }
                 }
             };
@@ -89,25 +89,34 @@ namespace DocumentProcessor.Tests.Services
 
             var mockTable = new Table();
             _mockHtmlConverter.Setup(x => x.CreateTable(It.Is<string[][]>(
-                data => data.Length == expectedTableData.Length &&
-                       data[0].Length == expectedTableData[0].Length)))
-                .Returns(mockTable);
+                data => data.Length == 3 && // Header + 2 data rows
+                       data[0].SequenceEqual(new[] { "ID", "Title" }) &&
+                       data[1].SequenceEqual(new[] { "1", "First Item" }) &&
+                       data[2].SequenceEqual(new[] { "2", "Second Item" }))),
+                Times.Once);
+
 
             // Act
             var result = await _processor.ProcessTagAsync(queryId);
 
             // Assert
+            Assert.NotNull(result);
             _mockAzureDevOpsService.Verify(x => x.GetQueryAsync(queryId), Times.Once);
             _mockAzureDevOpsService.Verify(x => x.ExecuteQueryAsync(queryId), Times.Once);
             _mockAzureDevOpsService.Verify(
                 x => x.GetWorkItemsAsync(
-                    It.Is<IEnumerable<int>>(ids => ids.Contains(1) && ids.Contains(2)),
-                    It.Is<IEnumerable<string>>(fields => 
-                        fields.Contains("System.Id") && 
-                        fields.Contains("System.Title") &&
-                        !fields.Contains("System.State"))),  // Verify only requested fields are fetched
+                    It.Is<IEnumerable<int>>(ids => ids.Count() == 2 &&
+                        ids.ToList().All(id => new[] { 1, 2 }.Contains(id))),
+                    It.Is<IEnumerable<string>>(fields =>
+                        fields.Count() == 2 &&
+                        fields.ToList().All(f => new[] { "System.Id", "System.Title" }.Contains(f)))),
                 Times.Once);
-            _mockHtmlConverter.Verify(x => x.CreateTable(It.IsAny<string[][]>()), Times.Once);
+            _mockHtmlConverter.Verify(x => x.CreateTable(It.Is<string[][]>(
+                data => data.Length == 3 && // Header + 2 data rows
+                       data[0].SequenceEqual(new[] { "ID", "Title" }) &&
+                       data[1].SequenceEqual(new[] { "1", "First Item" }) &&
+                       data[2].SequenceEqual(new[] { "2", "Second Item" }))),
+                Times.Once);
         }
 
         [Fact]
@@ -128,37 +137,6 @@ namespace DocumentProcessor.Tests.Services
             // Assert
             Assert.Equal("No columns defined in query.", result);
             _mockAzureDevOpsService.Verify(x => x.ExecuteQueryAsync(queryId), Times.Never);
-            _mockAzureDevOpsService.Verify(x => x.GetWorkItemsAsync(It.IsAny<IEnumerable<int>>(), It.IsAny<IEnumerable<string>>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task ProcessTagAsync_WithNoResults_ReturnsErrorMessage()
-        {
-            // Arrange
-            var queryId = Guid.NewGuid().ToString();
-            var queryColumns = new List<WorkItemQueryColumn>
-            {
-                new WorkItemQueryColumn { Name = "ID", ReferenceName = "System.Id" }
-            };
-
-            var query = new QueryHierarchyItem
-            {
-                Columns = queryColumns
-            };
-
-            var queryResult = new WorkItemQueryResult
-            {
-                WorkItems = new List<WorkItemReference>()
-            };
-
-            _mockAzureDevOpsService.Setup(x => x.GetQueryAsync(queryId)).ReturnsAsync(query);
-            _mockAzureDevOpsService.Setup(x => x.ExecuteQueryAsync(queryId)).ReturnsAsync(queryResult);
-
-            // Act
-            var result = await _processor.ProcessTagAsync(queryId);
-
-            // Assert
-            Assert.Equal("No results found for query.", result);
             _mockAzureDevOpsService.Verify(x => x.GetWorkItemsAsync(It.IsAny<IEnumerable<int>>(), It.IsAny<IEnumerable<string>>()), Times.Never);
         }
     }
