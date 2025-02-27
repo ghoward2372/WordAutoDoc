@@ -14,7 +14,8 @@ namespace DocumentProcessor.Services
     {
         Task<string> GetWorkItemDocumentTextAsync(int workItemId);
         Task<WorkItemQueryResult> ExecuteQueryAsync(string queryId);
-        Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds);
+        Task<QueryHierarchyItem> GetQueryAsync(string queryId);
+        Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds, IEnumerable<string> fields = null);
     }
 
     public class AzureDevOpsService : IAzureDevOpsService
@@ -78,14 +79,34 @@ namespace DocumentProcessor.Services
             }
         }
 
-        public async Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds)
+        public async Task<QueryHierarchyItem> GetQueryAsync(string queryId)
+        {
+            try
+            {
+                if (!Guid.TryParse(queryId, out var guid))
+                    throw new ArgumentException("Invalid query ID format. Expected a GUID.");
+
+            // Query ID is sufficient as it's unique across the organization
+            return await _witClient.GetQueryAsync(guid.ToString());
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error retrieving query {queryId}: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds, IEnumerable<string> fields = null)
         {
             try
             {
                 if (!workItemIds.Any())
                     return new List<WorkItem>();
 
-                return await _witClient.GetWorkItemsAsync(workItemIds, expand: WorkItemExpand.All);
+                return await _witClient.GetWorkItemsAsync(
+                    workItemIds,
+                    fields,
+                    expand: WorkItemExpand.None
+                );
             }
             catch (Exception ex)
             {

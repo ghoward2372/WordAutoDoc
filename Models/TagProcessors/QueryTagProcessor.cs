@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using DocumentProcessor.Services;
 
@@ -20,33 +21,44 @@ namespace DocumentProcessor.Models.TagProcessors
 
         public async Task<string> ProcessTagAsync(string tagContent)
         {
-            var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
-
-            if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
-                return "No results found for query.";
-
-            // Get full work item details
-            var workItemIds = queryResult.WorkItems.Select(wi => wi.Id).ToList();
-            var workItems = await _azureDevOpsService.GetWorkItemsAsync(workItemIds);
-
-            if (!workItems.Any())
-                return "No work items found.";
-
-            // Create table header row
-            var tableData = new[]
+            try
             {
-                new[] { "ID", "Title", "State" }
-            }.Concat(
-                workItems.Select(wi => new[]
-                {
-                    wi.Id.ToString(),
-                    GetFieldValue(wi.Fields, "System.Title"),
-                    GetFieldValue(wi.Fields, "System.State")
-                })
-            ).ToArray();
+                var query = await _azureDevOpsService.GetQueryAsync(tagContent);
+                if (query?.Columns == null || !query.Columns.Any())
+                    return "No columns defined in query.";
 
-            var table = _htmlConverter.CreateTable(tableData);
-            return table.OuterXml;
+                var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
+                if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
+                    return "No results found for query.";
+
+                // Get work items with only the fields specified in the query
+                var workItems = await _azureDevOpsService.GetWorkItemsAsync(
+                    queryResult.WorkItems.Select(wi => wi.Id),
+                    query.Columns.Select(c => c.ReferenceName)
+                );
+
+                if (!workItems.Any())
+                    return "No work items found.";
+
+                // Create table header row from query columns
+                var tableData = new[]
+                {
+                    query.Columns.Select(c => c.Name).ToArray()
+                }.Concat(
+                    workItems.Select(wi => query.Columns
+                        .Select(col => GetFieldValue(wi.Fields, col.ReferenceName))
+                        .ToArray()
+                    )
+                ).ToArray();
+
+                var table = _htmlConverter.CreateTable(tableData);
+                return table.OuterXml;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing query {tagContent}: {ex.Message}");
+                return $"Error processing query: {ex.Message}";
+            }
         }
 
         private static string GetFieldValue(IDictionary<string, object> fields, string fieldName)
