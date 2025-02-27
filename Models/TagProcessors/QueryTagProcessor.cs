@@ -23,10 +23,12 @@ namespace DocumentProcessor.Models.TagProcessors
         {
             try
             {
+                // First get the query definition to determine columns
                 var query = await _azureDevOpsService.GetQueryAsync(tagContent);
                 if (query?.Columns == null || !query.Columns.Any())
                     return "No columns defined in query.";
 
+                // Execute the query to get work item references
                 var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
                 if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
                     return "No results found for query.";
@@ -40,18 +42,23 @@ namespace DocumentProcessor.Models.TagProcessors
                 if (!workItems.Any())
                     return "No work items found.";
 
-                // Create table header row from query columns
-                var tableData = new[]
+                // Create table data - header row first
+                var tableData = new List<string[]>
                 {
+                    // Header row using column names from query
                     query.Columns.Select(c => c.Name).ToArray()
-                }.Concat(
-                    workItems.Select(wi => query.Columns
-                        .Select(col => GetFieldValue(wi.Fields, col.ReferenceName))
-                        .ToArray()
-                    )
-                ).ToArray();
+                };
 
-                var table = _htmlConverter.CreateTable(tableData);
+                // Add one row per work item
+                foreach (var workItem in workItems)
+                {
+                    var row = query.Columns
+                        .Select(col => GetFieldValue(workItem.Fields, col.ReferenceName))
+                        .ToArray();
+                    tableData.Add(row);
+                }
+
+                var table = _htmlConverter.CreateTable(tableData.ToArray());
                 return table.OuterXml;
             }
             catch (Exception ex)

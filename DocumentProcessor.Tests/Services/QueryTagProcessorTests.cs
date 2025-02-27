@@ -56,7 +56,8 @@ namespace DocumentProcessor.Tests.Services
                     Fields = new Dictionary<string, object>
                     {
                         { "System.Id", "1" },
-                        { "System.Title", "First Item" }
+                        { "System.Title", "First Item" },
+                        { "System.State", "Active" }  // This field should not appear in the table
                     }
                 },
                 new WorkItem
@@ -65,7 +66,8 @@ namespace DocumentProcessor.Tests.Services
                     Fields = new Dictionary<string, object>
                     {
                         { "System.Id", "2" },
-                        { "System.Title", "Second Item" }
+                        { "System.Title", "Second Item" },
+                        { "System.State", "Closed" }  // This field should not appear in the table
                     }
                 }
             };
@@ -102,7 +104,8 @@ namespace DocumentProcessor.Tests.Services
                     It.Is<IEnumerable<int>>(ids => ids.Contains(1) && ids.Contains(2)),
                     It.Is<IEnumerable<string>>(fields => 
                         fields.Contains("System.Id") && 
-                        fields.Contains("System.Title"))),
+                        fields.Contains("System.Title") &&
+                        !fields.Contains("System.State"))),  // Verify only requested fields are fetched
                 Times.Once);
             _mockHtmlConverter.Verify(x => x.CreateTable(It.IsAny<string[][]>()), Times.Once);
         }
