@@ -30,6 +30,10 @@ namespace DocumentProcessor
                 string sourceFile = args[0];
                 string outputFile = args[1];
 
+                Console.WriteLine($"\n=== Document Processing Started ===");
+                Console.WriteLine($"Source: {sourceFile}");
+                Console.WriteLine($"Output: {outputFile}");
+
                 // Initialize services with configuration
                 IAzureDevOpsService? adoService = null;
                 try
@@ -54,10 +58,13 @@ namespace DocumentProcessor
 
                 var processor = new WordDocumentProcessor(options);
                 await processor.ProcessDocumentAsync();
-                Console.WriteLine("Document processing completed successfully.");
+
+                Console.WriteLine("\n=== Processing Complete ===");
+                Console.WriteLine($"Output document ready at: {outputFile}");
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"\n=== Processing Failed ===");
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine($"Stack Trace: {ex.StackTrace}");
                 Environment.Exit(1);

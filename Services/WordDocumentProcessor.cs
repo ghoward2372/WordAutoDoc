@@ -55,6 +55,20 @@ namespace DocumentProcessor.Services
                     mainPart.Document.Save();
                     Console.WriteLine("\n=== Document Processing Completed ===");
                 }
+
+                // Verify the file exists and has content after processing
+                if (File.Exists(_options.OutputPath))
+                {
+                    var fileInfo = new FileInfo(_options.OutputPath);
+                    Console.WriteLine($"\n=== Output File Details ===");
+                    Console.WriteLine($"File path: {_options.OutputPath}");
+                    Console.WriteLine($"File size: {fileInfo.Length} bytes");
+                    Console.WriteLine($"Last modified: {fileInfo.LastWriteTime}");
+                }
+                else
+                {
+                    throw new FileNotFoundException("Output file not found after processing", _options.OutputPath);
+                }
             }
             catch (Exception ex)
             {
@@ -68,7 +82,7 @@ namespace DocumentProcessor.Services
         private async Task ProcessDocumentContentAsync(Body body)
         {
             var paragraphsToProcess = body.Elements<Paragraph>().ToList();
-            Console.WriteLine($"\nFound {paragraphsToProcess.Count} paragraphs to process");
+            Console.WriteLine($"\n=== Processing {paragraphsToProcess.Count} Paragraphs ===");
 
             foreach (var paragraph in paragraphsToProcess)
             {
@@ -79,37 +93,43 @@ namespace DocumentProcessor.Services
 
                 if (result.IsTable)
                 {
-                    Console.WriteLine("\n=== Inserting Table ===");
+                    Console.WriteLine("\n=== Table Processing ===");
                     try
                     {
                         var table = result.TableElement!;
                         var rowCount = table.Elements<TableRow>().Count();
                         var columnCount = table.Elements<TableRow>().FirstOrDefault()?.Elements<TableCell>().Count() ?? 0;
 
-                        Console.WriteLine("Table properties:");
-                        Console.WriteLine($"- Rows: {rowCount}");
-                        Console.WriteLine($"- Columns: {columnCount}");
-                        Console.WriteLine($"- Border size: {table.GetFirstChild<TableProperties>()?.TableBorders?.TopBorder?.Size ?? 0}");
-                        Console.WriteLine($"- Width type: {table.GetFirstChild<TableProperties>()?.TableWidth?.Type ?? TableWidthUnitValues.Auto}");
+                        Console.WriteLine($"Table structure details:");
+                        Console.WriteLine($"- Total rows: {rowCount}");
+                        Console.WriteLine($"- Columns per row: {columnCount}");
+
+                        var tableProps = table.GetFirstChild<TableProperties>();
+                        Console.WriteLine("Table formatting:");
+                        Console.WriteLine($"- Border size: {tableProps?.TableBorders?.TopBorder?.Size ?? 0}pt");
+                        Console.WriteLine($"- Table width: {tableProps?.TableWidth?.Width ?? "auto"}");
+                        Console.WriteLine($"- Table look: {tableProps?.TableLook?.Val ?? "default"}");
 
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
-                        Console.WriteLine("Table inserted successfully");
+                        Console.WriteLine("Table successfully inserted into document");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error inserting table: {ex.Message}");
+                        Console.WriteLine($"Error during table insertion: {ex.Message}");
                         Console.WriteLine($"Table XML structure: {result.TableElement!.OuterXml}");
                         throw;
                     }
                 }
                 else if (text != result.ProcessedText)
                 {
-                    Console.WriteLine("Updating paragraph text");
+                    Console.WriteLine("Updating paragraph with processed text");
                     paragraph.RemoveAllChildren();
                     paragraph.AppendChild(new Run(new Text(result.ProcessedText)));
                 }
             }
+
+            Console.WriteLine("\n=== Document Processing Complete ===");
         }
 
         private async Task<ProcessingResult> ProcessTextAsync(string text)
