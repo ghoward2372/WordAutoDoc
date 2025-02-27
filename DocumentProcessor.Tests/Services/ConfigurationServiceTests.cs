@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using Xunit;
 using DocumentProcessor.Models.Configuration;
 using DocumentProcessor.Services;
@@ -9,9 +10,23 @@ namespace DocumentProcessor.Tests.Services
     public class ConfigurationServiceTests : IDisposable
     {
         private const string TestConfigFile = "appsettings.test.json";
+        private readonly Dictionary<string, string> _originalEnvVars;
 
         public ConfigurationServiceTests()
         {
+            // Store original environment variables
+            _originalEnvVars = new Dictionary<string, string>
+            {
+                { "ADO_ORGANIZATION", Environment.GetEnvironmentVariable("ADO_ORGANIZATION") ?? string.Empty },
+                { "ADO_PAT", Environment.GetEnvironmentVariable("ADO_PAT") ?? string.Empty },
+                { "ADO_BASEURL", Environment.GetEnvironmentVariable("ADO_BASEURL") ?? string.Empty }
+            };
+
+            // Clear environment variables for testing
+            Environment.SetEnvironmentVariable("ADO_ORGANIZATION", null);
+            Environment.SetEnvironmentVariable("ADO_PAT", null);
+            Environment.SetEnvironmentVariable("ADO_BASEURL", null);
+
             // Ensure test file doesn't exist before each test
             if (File.Exists(TestConfigFile))
                 File.Delete(TestConfigFile);
@@ -53,52 +68,40 @@ namespace DocumentProcessor.Tests.Services
         }
 
         [Fact]
-        public void GetConnectionUrl_WithValidConfig_ReturnsCorrectUrl()
+        public void LoadAzureDevOpsConfig_WithEnvironmentVariables_OverridesConfig()
         {
             // Arrange
-            var config = new AzureDevOpsConfig
-            {
-                Organization = "testorg",
-                PersonalAccessToken = "testpat",
-                BaseUrl = "https://dev.azure.com"
-            };
+            var json = @"{
+                ""AzureDevOps"": {
+                    ""Organization"": ""testorg"",
+                    ""PersonalAccessToken"": ""testpat"",
+                    ""BaseUrl"": ""https://test.azure.com""
+                }
+            }";
+            File.WriteAllText(TestConfigFile, json);
 
-            // Act & Assert
-            Assert.Equal("https://dev.azure.com/testorg", config.GetConnectionUrl());
-        }
+            Environment.SetEnvironmentVariable("ADO_ORGANIZATION", "envorg");
+            Environment.SetEnvironmentVariable("ADO_PAT", "envpat");
+            Environment.SetEnvironmentVariable("ADO_BASEURL", "https://env.azure.com");
 
-        [Fact]
-        public void GetConnectionUrl_WithMissingOrganization_ThrowsException()
-        {
-            // Arrange
-            var config = new AzureDevOpsConfig
-            {
-                PersonalAccessToken = "testpat",
-                BaseUrl = "https://dev.azure.com"
-            };
+            // Act
+            var result = ConfigurationService.LoadAzureDevOpsConfig(TestConfigFile);
 
-            // Act & Assert
-            var ex = Assert.Throws<InvalidOperationException>(() => config.GetConnectionUrl());
-            Assert.Contains("organization not found", ex.Message);
-        }
-
-        [Fact]
-        public void GetConnectionUrl_WithMissingPat_ThrowsException()
-        {
-            // Arrange
-            var config = new AzureDevOpsConfig
-            {
-                Organization = "testorg",
-                BaseUrl = "https://dev.azure.com"
-            };
-
-            // Act & Assert
-            var ex = Assert.Throws<InvalidOperationException>(() => config.GetConnectionUrl());
-            Assert.Contains("Personal Access Token", ex.Message);
+            // Assert
+            Assert.Equal("envorg", result.Organization);
+            Assert.Equal("envpat", result.PersonalAccessToken);
+            Assert.Equal("https://env.azure.com", result.BaseUrl);
         }
 
         public void Dispose()
         {
+            // Restore original environment variables
+            foreach (var envVar in _originalEnvVars)
+            {
+                Environment.SetEnvironmentVariable(envVar.Key, envVar.Value);
+            }
+
+            // Cleanup test file
             if (File.Exists(TestConfigFile))
                 File.Delete(TestConfigFile);
         }

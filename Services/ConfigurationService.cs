@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Json;
+using Microsoft.Extensions.Configuration.EnvironmentVariables;
 using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Services
