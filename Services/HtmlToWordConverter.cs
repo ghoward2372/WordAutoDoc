@@ -37,33 +37,80 @@ namespace DocumentProcessor.Services
                 throw new ArgumentException("Table data cannot be null or empty");
 
             var table = new Table();
-            var props = new TableProperties(
-                new TableBorders(
-                    new TopBorder { Val = BorderValues.Single },
-                    new BottomBorder { Val = BorderValues.Single },
-                    new LeftBorder { Val = BorderValues.Single },
-                    new RightBorder { Val = BorderValues.Single },
-                    new InsideHorizontalBorder { Val = BorderValues.Single },
-                    new InsideVerticalBorder { Val = BorderValues.Single }
-                ),
-                new TableWidth { Type = TableWidthUnitValues.Auto }
-            );
-            table.AppendChild(props);
 
+            // Enhanced table properties for better visual appearance
+            var tableProperties = new TableProperties(
+                new TableBorders(
+                    new TopBorder { Val = BorderValues.Single, Size = 12 },
+                    new BottomBorder { Val = BorderValues.Single, Size = 12 },
+                    new LeftBorder { Val = BorderValues.Single, Size = 12 },
+                    new RightBorder { Val = BorderValues.Single, Size = 12 },
+                    new InsideHorizontalBorder { Val = BorderValues.Single, Size = 6 },
+                    new InsideVerticalBorder { Val = BorderValues.Single, Size = 6 }
+                ),
+                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" }, // 50% of page width
+                new TableLook { Val = "04A0" } // Enable header row and banded rows
+            );
+            table.AppendChild(tableProperties);
+
+            // Add the table grid with column definitions
+            var grid = new TableGrid();
+            for (int i = 0; i < (data.Length > 0 ? data[0].Length : 0); i++)
+            {
+                grid.AppendChild(new GridColumn());
+            }
+            table.AppendChild(grid);
+
+            bool isHeader = true;
             foreach (var rowData in data)
             {
                 var row = new TableRow();
+
+                if (isHeader)
+                {
+                    // Style the header row
+                    row.AppendChild(new TableRowProperties(
+                        new TableRowHeight { Val = 400 }, // Slightly taller header row
+                        new TableHeader() // Mark as header row
+                    ));
+                }
+
                 foreach (var cellData in rowData)
                 {
                     var cell = new TableCell();
-                    var cellProps = new TableCellProperties(
-                        new TableCellWidth { Type = TableWidthUnitValues.Auto }
+
+                    // Style each cell
+                    var cellProperties = new TableCellProperties(
+                        new TableCellWidth { Type = TableWidthUnitValues.Auto },
+                        new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
                     );
-                    cell.AppendChild(cellProps);
-                    cell.AppendChild(new Paragraph(new Run(new Text(cellData ?? string.Empty))));
+
+                    if (isHeader)
+                    {
+                        // Add bold text and center alignment for header cells
+                        cellProperties.AppendChild(new Shading { Fill = "EEEEEE" }); // Light gray background
+                    }
+
+                    cell.AppendChild(cellProperties);
+
+                    // Create paragraph with proper formatting
+                    var paragraph = new Paragraph(
+                        new ParagraphProperties(
+                            new Justification { Val = JustificationValues.Center },
+                            new SpacingBetweenLines { Before = "0", After = "0" }
+                        ),
+                        new Run(
+                            isHeader ? new RunProperties(new Bold()) : null,
+                            new Text(cellData ?? string.Empty)
+                        )
+                    );
+
+                    cell.AppendChild(paragraph);
                     row.AppendChild(cell);
                 }
+
                 table.AppendChild(row);
+                isHeader = false;
             }
 
             return table;
