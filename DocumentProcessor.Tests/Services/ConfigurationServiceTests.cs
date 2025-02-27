@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text.Json;
 using Xunit;
 using DocumentProcessor.Models.Configuration;
 using DocumentProcessor.Services;
@@ -22,16 +21,14 @@ namespace DocumentProcessor.Tests.Services
         public void LoadAzureDevOpsConfig_WithValidConfig_ReturnsConfig()
         {
             // Arrange
-            var config = new
-            {
-                AzureDevOps = new
-                {
-                    Organization = "testorg",
-                    PersonalAccessToken = "testpat",
-                    BaseUrl = "https://test.azure.com"
+            var json = @"{
+                ""AzureDevOps"": {
+                    ""Organization"": ""testorg"",
+                    ""PersonalAccessToken"": ""testpat"",
+                    ""BaseUrl"": ""https://test.azure.com""
                 }
-            };
-            File.WriteAllText(TestConfigFile, JsonSerializer.Serialize(config));
+            }";
+            File.WriteAllText(TestConfigFile, json);
 
             // Act
             var result = ConfigurationService.LoadAzureDevOpsConfig(TestConfigFile);

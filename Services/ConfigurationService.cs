@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Services
@@ -15,21 +15,13 @@ namespace DocumentProcessor.Services
             {
                 configFileName ??= DefaultConfigFileName;
 
-                if (!File.Exists(configFileName))
-                {
-                    return new AzureDevOpsConfig();
-                }
+                var configuration = new ConfigurationBuilder()
+                    .SetBasePath(Directory.GetCurrentDirectory())
+                    .AddJsonFile(configFileName, optional: true, reloadOnChange: true)
+                    .Build();
 
-                var jsonString = File.ReadAllText(configFileName);
-                var config = JsonSerializer.Deserialize<JsonElement>(jsonString);
-
-                if (config.TryGetProperty("AzureDevOps", out var adoConfig))
-                {
-                    return JsonSerializer.Deserialize<AzureDevOpsConfig>(adoConfig.GetRawText()) 
-                        ?? new AzureDevOpsConfig();
-                }
-
-                return new AzureDevOpsConfig();
+                var adoConfig = configuration.GetSection("AzureDevOps").Get<AzureDevOpsConfig>();
+                return adoConfig ?? new AzureDevOpsConfig();
             }
             catch (Exception ex)
             {
