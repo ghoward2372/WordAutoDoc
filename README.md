@@ -17,7 +17,13 @@ A C# command line tool for processing Word documents with Azure DevOps integrati
 
 ## Setup
 
-1. Configure appsettings.json:
+1. Configure Azure DevOps settings:
+   ```bash
+   # Copy the template configuration file
+   cp appsettings.template.json appsettings.json
+   ```
+
+   Then edit appsettings.json with your Azure DevOps settings:
    ```json
    {
      "AzureDevOps": {
@@ -66,3 +72,5 @@ The application uses appsettings.json for all configuration:
 - AzureDevOps.Organization: Your Azure DevOps organization name
 - AzureDevOps.PersonalAccessToken: Your Azure DevOps Personal Access Token
 - AzureDevOps.BaseUrl: Base URL for Azure DevOps API (default: https://dev.azure.com)
+
+Note: Make sure to keep your appsettings.json file secure and never commit it to version control.
