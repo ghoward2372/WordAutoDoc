@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using DocumentProcessor.Services;
 
@@ -20,61 +21,61 @@ namespace DocumentProcessor.Models.TagProcessors
 
         public async Task<string> ProcessTagAsync(string tagContent)
         {
-            var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
-
-            if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
-                return "No results found for query.";
-
-            // Get full work item details
-            var workItemIds = queryResult.WorkItems.Select(wi => wi.Id).ToList();
-            var workItems = await _azureDevOpsService.GetWorkItemsAsync(workItemIds);
-
-            if (!workItems.Any())
-                return "No work items found.";
-
-            // Convert work items to table format with explicit null handling
-            var tableData = workItems
-                .Select(wi => new[]
+            try
+            {
+                if (!Guid.TryParse(tagContent, out var queryId))
                 {
-                    wi.Id.ToString(),
-                    GetFieldValue(wi.Fields, "System.Title"),
-                    GetFieldValue(wi.Fields, "System.State")
-                })
-                .ToArray();
+                    return "Invalid query ID format. Expected a GUID.";
+                }
 
-            // Add header row
-            var headerRow = new[] { "ID", "Title", "State" };
-            var fullTableData = new[] { headerRow }
-                .Concat(tableData)
-                .Select(row => row.Select(cell => cell ?? string.Empty).ToArray())
-                .ToArray();
+                // First get the query definition to determine columns
+                var query = await _azureDevOpsService.GetQueryAsync(tagContent);
+                if (query?.Columns == null || !query.Columns.Any())
+                    return "No columns defined in query.";
 
-            return ConvertToMarkdownTable(fullTableData);
+                // Execute the query to get work item references
+                var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
+                if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
+                    return "No results found for query.";
+
+                // Get work items with only the fields specified in the query
+                var workItems = await _azureDevOpsService.GetWorkItemsAsync(
+                    queryResult.WorkItems.Select(wi => wi.Id),
+                    query.Columns.Select(c => c.ReferenceName)
+                );
+
+                if (!workItems.Any())
+                    return "No work items found.";
+
+                // Create table data - header row first
+                var tableData = new List<string[]>
+                {
+                    // Header row using column names from query
+                    query.Columns.Select(c => c.Name).ToArray()
+                };
+
+                // Add one row per work item
+                foreach (var workItem in workItems)
+                {
+                    var row = query.Columns
+                        .Select(col => GetFieldValue(workItem.Fields, col.ReferenceName))
+                        .ToArray();
+                    tableData.Add(row);
+                }
+
+                var table = _htmlConverter.CreateTable(tableData.ToArray());
+                return table.OuterXml;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing query {tagContent}: {ex.Message}");
+                return $"Error processing query: {ex.Message}";
+            }
         }
 
         private static string GetFieldValue(IDictionary<string, object> fields, string fieldName)
         {
             return fields.TryGetValue(fieldName, out var value) ? value?.ToString() ?? string.Empty : string.Empty;
-        }
-
-        private string ConvertToMarkdownTable(string[][] tableData)
-        {
-            if (tableData == null || tableData.Length == 0)
-                return string.Empty;
-
-            var table = new System.Text.StringBuilder();
-
-            // Header
-            table.AppendLine(string.Join(" | ", tableData[0]));
-            table.AppendLine(string.Join(" | ", tableData[0].Select(_ => "---")));
-
-            // Data rows
-            for (int i = 1; i < tableData.Length; i++)
-            {
-                table.AppendLine(string.Join(" | ", tableData[i]));
-            }
-
-            return table.ToString();
         }
     }
 }

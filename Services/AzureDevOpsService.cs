@@ -14,7 +14,8 @@ namespace DocumentProcessor.Services
     {
         Task<string> GetWorkItemDocumentTextAsync(int workItemId);
         Task<WorkItemQueryResult> ExecuteQueryAsync(string queryId);
-        Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds);
+        Task<QueryHierarchyItem> GetQueryAsync(string queryId);
+        Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds, IEnumerable<string>? fields = null);
     }
 
     public class AzureDevOpsService : IAzureDevOpsService
@@ -30,7 +31,7 @@ namespace DocumentProcessor.Services
         {
             var config = ConfigurationService.LoadAzureDevOpsConfig();
             var credentials = new VssBasicCredential(string.Empty, config.PersonalAccessToken);
-            var connection = new VssConnection(new Uri(config.GetConnectionUrl()), credentials);
+            var connection = new VssConnection(new Uri(config.BaseUrl), credentials);
 
             try
             {
@@ -53,7 +54,7 @@ namespace DocumentProcessor.Services
                     throw new InvalidOperationException($"Work item {workItemId} or its fields are null");
                 }
 
-                return workItem.Fields.TryGetValue("DocumentText", out object? value)
+                return workItem.Fields.TryGetValue("CAFRS.CAFRSSystem.DocumentPart.DocumentText", out object? value)
                     ? value?.ToString() ?? string.Empty
                     : string.Empty;
             }
@@ -78,14 +79,34 @@ namespace DocumentProcessor.Services
             }
         }
 
-        public async Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds)
+        public async Task<QueryHierarchyItem> GetQueryAsync(string queryId)
+        {
+            try
+            {
+                if (!Guid.TryParse(queryId, out var guid))
+                    throw new ArgumentException("Invalid query ID format. Expected a GUID.");
+
+                // The project parameter is required but can be empty for organization-wide queries
+                return await _witClient.GetQueryAsync(string.Empty, guid.ToString());
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error retrieving query {queryId}: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds, IEnumerable<string>? fields = null)
         {
             try
             {
                 if (!workItemIds.Any())
                     return new List<WorkItem>();
 
-                return await _witClient.GetWorkItemsAsync(workItemIds, expand: WorkItemExpand.All);
+                return await _witClient.GetWorkItemsAsync(
+                    workItemIds,
+                    fields,
+                    expand: WorkItemExpand.None
+                );
             }
             catch (Exception ex)
             {

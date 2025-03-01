@@ -49,3 +49,4 @@ bld/
 ## Configuration files containing sensitive data
 appsettings.*.json
 211111111111
+/appsettings.json
