@@ -1,8 +1,8 @@
-using System;
-using System.Text.RegularExpressions;
-using System.Net;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
+using System;
+using System.Net;
+using System.Text.RegularExpressions;
 
 namespace DocumentProcessor.Services
 {
@@ -31,6 +31,7 @@ namespace DocumentProcessor.Services
             return html.Trim();
         }
 
+
         public Table CreateTable(string[][] data)
         {
             if (data == null || data.Length == 0)
@@ -38,7 +39,7 @@ namespace DocumentProcessor.Services
 
             var table = new Table();
 
-            // Enhanced table properties for better visual appearance
+            // Table properties
             var tableProperties = new TableProperties(
                 new TableBorders(
                     new TopBorder { Val = BorderValues.Single, Size = 12 },
@@ -48,47 +49,39 @@ namespace DocumentProcessor.Services
                     new InsideHorizontalBorder { Val = BorderValues.Single, Size = 6 },
                     new InsideVerticalBorder { Val = BorderValues.Single, Size = 6 }
                 ),
-                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" }, // 50% of page width
-                new TableLook { Val = "04A0" } // Enable header row and banded rows
+                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
+                new TableLook { Val = "04A0" }
             );
             table.AppendChild(tableProperties);
 
-            // Add the table grid with column definitions
+            // Define TableGrid columns based on the first row
+            int columnCount = data[0].Length;
             var grid = new TableGrid();
-            for (int i = 0; i < (data.Length > 0 ? data[0].Length : 0); i++)
+            for (int i = 0; i < columnCount; i++)
             {
                 grid.AppendChild(new GridColumn());
             }
             table.AppendChild(grid);
 
-            bool isHeader = true;
-            foreach (var rowData in data)
+            // Iterate through rows
+            for (int i = 0; i < data.Length; i++)
             {
+                var rowData = data[i];
                 var row = new TableRow();
 
-                if (isHeader)
-                {
-                    // Style the header row
-                    row.AppendChild(new TableRowProperties(
-                        new TableRowHeight { Val = 400 }, // Slightly taller header row
-                        new TableHeader() // Mark as header row
-                    ));
-                }
-
-                foreach (var cellData in rowData)
+                // Ensure correct number of cells in each row
+                for (int j = 0; j < columnCount; j++)
                 {
                     var cell = new TableCell();
-
-                    // Style each cell
                     var cellProperties = new TableCellProperties(
                         new TableCellWidth { Type = TableWidthUnitValues.Auto },
                         new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
                     );
 
-                    if (isHeader)
+                    if (i == 0) // Header row styling
                     {
-                        // Add bold text and center alignment for header cells
-                        cellProperties.AppendChild(new Shading { Fill = "EEEEEE" }); // Light gray background
+                        cellProperties.AppendChild(new Shading { Fill = "EEEEEE" });
+                        cell.AppendChild(new TableRowProperties(new TableHeader())); // Ensure it's a header
                     }
 
                     cell.AppendChild(cellProperties);
@@ -100,8 +93,11 @@ namespace DocumentProcessor.Services
                             new SpacingBetweenLines { Before = "0", After = "0" }
                         ),
                         new Run(
-                            isHeader ? new RunProperties(new Bold()) : null,
-                            new Text(cellData ?? string.Empty)
+                            new OpenXmlElement[]
+                            {
+                        (i == 0) ? new RunProperties(new Bold()) : new RunProperties(),
+                        new Text(j < rowData.Length ? rowData[j] : string.Empty) // Ensure no out-of-bounds error
+                            }
                         )
                     );
 
@@ -110,10 +106,10 @@ namespace DocumentProcessor.Services
                 }
 
                 table.AppendChild(row);
-                isHeader = false;
             }
 
             return table;
         }
+
     }
 }

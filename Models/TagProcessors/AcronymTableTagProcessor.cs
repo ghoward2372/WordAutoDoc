@@ -1,6 +1,6 @@
-using System.Threading.Tasks;
-using System.Linq;
 using DocumentProcessor.Services;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
@@ -15,7 +15,7 @@ namespace DocumentProcessor.Models.TagProcessors
             _htmlConverter = htmlConverter;
         }
 
-        public Task<string> ProcessTagAsync(string tagContent)
+        public Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options)
         {
             var acronyms = _acronymProcessor.GetAcronyms();
             if (!acronyms.Any())

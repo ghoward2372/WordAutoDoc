@@ -1,16 +1,15 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Text.RegularExpressions;
-using System.IO;
-using System.Xml;
-using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
 using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Utilities;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Xml;
 
 namespace DocumentProcessor.Services
 {
@@ -147,7 +146,7 @@ namespace DocumentProcessor.Services
                     {
                         Console.WriteLine($"\nProcessing {tagProcessor.Key} tag: {match.Value}");
                         var tagContent = match.Groups[1].Value;
-                        var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent);
+                        var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
 
                         if (IsTableXml(processedContent))
                         {
@@ -177,6 +176,7 @@ namespace DocumentProcessor.Services
             return content?.StartsWith("<w:tbl") ?? false;
         }
 
+
         private Table CreateTableFromXml(string tableXml)
         {
             try
@@ -204,11 +204,13 @@ namespace DocumentProcessor.Services
                 using (var xmlReader = XmlReader.Create(stringReader))
                 {
                     bool isFirstRow = true;
+                    TableRow row = null;
+
                     while (xmlReader.Read())
                     {
                         if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tr")
                         {
-                            var row = new TableRow();
+                            row = new TableRow();
 
                             if (isFirstRow)
                             {
@@ -217,48 +219,62 @@ namespace DocumentProcessor.Services
                                     new TableHeader()
                                 ));
                             }
+                        }
+                        else if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tc")
+                        {
+                            if (row == null)
+                                continue; // Ensure row exists before adding cells
 
-                            while (xmlReader.Read() && !(xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tr"))
+                            var cell = new TableCell();
+                            var cellProps = new TableCellProperties(
+                                new TableCellWidth { Type = TableWidthUnitValues.Auto },
+                                new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
+                            );
+
+                            if (isFirstRow)
                             {
-                                if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tc")
+                                cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
+                            }
+
+                            cell.AppendChild(cellProps);
+
+                            // Read text content properly from within the <tc> tag
+                            string cellContent = "";
+                            while (xmlReader.Read())
+                            {
+                                if (xmlReader.NodeType == XmlNodeType.Text)
                                 {
-                                    var cell = new TableCell();
-                                    var cellProps = new TableCellProperties(
-                                        new TableCellWidth { Type = TableWidthUnitValues.Auto },
-                                        new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
-                                    );
-
-                                    if (isFirstRow)
-                                    {
-                                        cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
-                                    }
-
-                                    cell.AppendChild(cellProps);
-
-                                    // Get the raw XML content
-                                    string rawXml = xmlReader.ReadInnerXml();
-
-                                    // Extract plain text from XML content
-                                    string cellContent = ExtractTextFromXml(rawXml);
-                                    Console.WriteLine($"Adding cell content: {cellContent}");
-
-                                    var paragraph = new Paragraph(
-                                        new ParagraphProperties(
-                                            new Justification { Val = JustificationValues.Center },
-                                            new SpacingBetweenLines { Before = "0", After = "0" }
-                                        ),
-                                        new Run(
-                                            isFirstRow ? new RunProperties(new Bold()) : null,
-                                            new Text(cellContent)
-                                        )
-                                    );
-
-                                    cell.AppendChild(paragraph);
-                                    row.AppendChild(cell);
+                                    cellContent += xmlReader.Value.Trim();
+                                }
+                                else if (xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tc")
+                                {
+                                    break; // Stop reading once we reach the end of the <tc> tag
                                 }
                             }
-                            table.AppendChild(row);
-                            isFirstRow = false;
+
+                            Console.WriteLine($"Adding cell content: {cellContent}");
+
+                            var paragraph = new Paragraph(
+                                new ParagraphProperties(
+                                    new Justification { Val = JustificationValues.Center },
+                                    new SpacingBetweenLines { Before = "0", After = "0" }
+                                ),
+                                new Run(
+                                    isFirstRow ? new RunProperties(new Bold()) : null,
+                                    new Text(cellContent)
+                                )
+                            );
+
+                            cell.AppendChild(paragraph);
+                            row.AppendChild(cell);
+                        }
+                        else if (xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tr")
+                        {
+                            if (row != null)
+                            {
+                                table.AppendChild(row);
+                                isFirstRow = false;
+                            }
                         }
                     }
                 }
@@ -273,6 +289,7 @@ namespace DocumentProcessor.Services
                 throw new Exception($"Error creating table from XML: {ex.Message}", ex);
             }
         }
+
 
         public string ExtractTextFromXml(string xml)
         {

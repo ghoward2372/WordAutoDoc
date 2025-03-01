@@ -1,10 +1,8 @@
+using DocumentProcessor.Services;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
-using DocumentProcessor.Services;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
@@ -20,6 +18,22 @@ namespace DocumentProcessor.Models.TagProcessors
         }
 
         public async Task<string> ProcessTagAsync(string tagContent)
+        {
+            var options = new DocumentProcessingOptions
+            {
+                SourcePath = string.Empty,
+                OutputPath = string.Empty,
+                AzureDevOpsService = null,
+                AcronymProcessor = new AcronymProcessor(),
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = string.Empty
+            };
+
+            return await ProcessTagAsync(tagContent, options);
+        }
+
+
+        public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options)
         {
             try
             {
