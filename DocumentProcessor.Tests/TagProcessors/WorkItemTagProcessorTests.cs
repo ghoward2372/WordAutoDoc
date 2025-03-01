@@ -1,10 +1,10 @@
-using System;
-using System.Threading.Tasks;
+using DocumentProcessor.Models;
 using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Services;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
-using Moq;
+using System;
+using System.Threading.Tasks;
 using Xunit;
+using Moq;
 
 namespace DocumentProcessor.Tests.TagProcessors
 {
@@ -13,12 +13,24 @@ namespace DocumentProcessor.Tests.TagProcessors
         private readonly Mock<IAzureDevOpsService> _mockAzureDevOpsService;
         private readonly Mock<IHtmlToWordConverter> _mockHtmlConverter;
         private readonly WorkItemTagProcessor _processor;
+        private readonly DocumentProcessingOptions _options;
+        private const string TEST_FQ_FIELD = "System.Description";
 
         public WorkItemTagProcessorTests()
         {
             _mockAzureDevOpsService = new Mock<IAzureDevOpsService>();
             _mockHtmlConverter = new Mock<IHtmlToWordConverter>();
             _processor = new WorkItemTagProcessor(_mockAzureDevOpsService.Object, _mockHtmlConverter.Object);
+
+            _options = new DocumentProcessingOptions
+            {
+                SourcePath = "test.docx",
+                OutputPath = "output.docx",
+                AzureDevOpsService = _mockAzureDevOpsService.Object,
+                AcronymProcessor = new AcronymProcessor(),
+                HtmlConverter = _mockHtmlConverter.Object,
+                FQDocumentField = TEST_FQ_FIELD
+            };
         }
 
         [Fact]
@@ -30,7 +42,7 @@ namespace DocumentProcessor.Tests.TagProcessors
             const string processedContent = "Test content";
 
             _mockAzureDevOpsService
-                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId))
+                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
                 .ReturnsAsync(rawContent);
 
             _mockHtmlConverter
@@ -38,11 +50,11 @@ namespace DocumentProcessor.Tests.TagProcessors
                 .Returns(processedContent);
 
             // Act
-            var result = await _processor.ProcessTagAsync(workItemId.ToString());
+            var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
 
             // Assert
             Assert.Equal(processedContent, result);
-            _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(workItemId), Times.Once);
+            _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD), Times.Once);
             _mockHtmlConverter.Verify(x => x.ConvertHtmlToWordFormat(rawContent), Times.Once);
         }
 
@@ -53,7 +65,8 @@ namespace DocumentProcessor.Tests.TagProcessors
             const string invalidId = "invalid";
 
             // Act & Assert
-            await Assert.ThrowsAsync<ArgumentException>(() => _processor.ProcessTagAsync(invalidId));
+            await Assert.ThrowsAsync<ArgumentException>(() => 
+                _processor.ProcessTagAsync(invalidId, _options));
         }
 
         [Fact]
@@ -64,7 +77,7 @@ namespace DocumentProcessor.Tests.TagProcessors
             string? nullContent = null;
 
             _mockAzureDevOpsService
-                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId))
+                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
                 .ReturnsAsync(nullContent);
 
             _mockHtmlConverter
@@ -72,7 +85,7 @@ namespace DocumentProcessor.Tests.TagProcessors
                 .Returns(string.Empty);
 
             // Act
-            var result = await _processor.ProcessTagAsync(workItemId.ToString());
+            var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
 
             // Assert
             Assert.Equal(string.Empty, result);

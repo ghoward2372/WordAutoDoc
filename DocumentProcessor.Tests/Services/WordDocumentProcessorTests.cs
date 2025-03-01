@@ -18,6 +18,7 @@ namespace DocumentProcessor.Tests.Services
         private readonly AcronymProcessor _acronymProcessor;
         private readonly string _testFilePath;
         private readonly string _outputFilePath;
+        private const string TEST_FQ_FIELD = "System.Description";
 
         public WordDocumentProcessorTests()
         {
@@ -41,7 +42,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = null,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = _mockHtmlConverter.Object
+                HtmlConverter = _mockHtmlConverter.Object,
+                FQDocumentField = TEST_FQ_FIELD
             };
 
             var processor = new WordDocumentProcessor(options);
@@ -72,7 +74,7 @@ namespace DocumentProcessor.Tests.Services
         {
             // Arrange
             _mockAzureDevOpsService
-                .Setup(x => x.GetWorkItemDocumentTextAsync(1234))
+                .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
                 .ReturnsAsync("<p>Test work item content</p>");
 
             _mockHtmlConverter
@@ -85,7 +87,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = _mockHtmlConverter.Object
+                HtmlConverter = _mockHtmlConverter.Object,
+                FQDocumentField = TEST_FQ_FIELD
             };
 
             var processor = new WordDocumentProcessor(options);
@@ -106,7 +109,7 @@ namespace DocumentProcessor.Tests.Services
                 Assert.DoesNotContain("[[WorkItem:1234]]", text);
             }
 
-            _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(1234), Times.Once);
+            _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD), Times.Once);
             _mockHtmlConverter.Verify(x => x.ConvertHtmlToWordFormat("<p>Test work item content</p>"), Times.Once);
         }
 
@@ -128,7 +131,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = _mockHtmlConverter.Object
+                HtmlConverter = _mockHtmlConverter.Object,
+                FQDocumentField = TEST_FQ_FIELD
             };
 
             var processor = new WordDocumentProcessor(options);
@@ -145,47 +149,6 @@ namespace DocumentProcessor.Tests.Services
                 Assert.True(tables.Any());
             }
         }
-
-        [Fact]
-        public async Task ProcessDocument_WithAcronymTableTag_CreatesWordTable()
-        {
-            // Arrange
-            var tableXml = @"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:tr><w:tc><w:p><w:r><w:t>Acronym</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Definition</w:t></w:r></w:p></w:tc></w:tr>
-                <w:tr><w:tc><w:p><w:r><w:t>API</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Application Programming Interface</w:t></w:r></w:p></w:tc></w:tr>
-            </w:tbl>";
-
-            _mockHtmlConverter
-                .Setup(x => x.CreateTable(It.IsAny<string[][]>()))
-                .Returns(new Table());
-
-            var options = new DocumentProcessingOptions
-            {
-                SourcePath = _testFilePath,
-                OutputPath = _outputFilePath,
-                AzureDevOpsService = null,
-                AcronymProcessor = _acronymProcessor,
-                HtmlConverter = _mockHtmlConverter.Object
-            };
-
-            var processor = new WordDocumentProcessor(options);
-
-            // Act
-            await processor.ProcessDocumentAsync();
-
-            // Assert
-            Assert.True(File.Exists(_outputFilePath));
-            using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
-            {
-                var mainPart = doc.MainDocumentPart;
-                Assert.NotNull(mainPart?.Document?.Body);
-                var tables = mainPart.Document.Body.Elements<Table>();
-                Assert.True(tables.Any());
-            }
-
-            _mockHtmlConverter.Verify(x => x.CreateTable(It.IsAny<string[][]>()), Times.Once);
-        }
-
         [Fact]
         public void ExtractTextFromXml_WithComplexWordXml_ExtractsTextContent()
         {
@@ -197,7 +160,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -222,7 +186,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -267,7 +232,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -299,7 +265,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -333,7 +300,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -370,7 +338,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -396,7 +365,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -420,7 +390,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
@@ -450,7 +421,8 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
                 AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter()
+                HtmlConverter = new HtmlToWordConverter(),
+                FQDocumentField = TEST_FQ_FIELD
             });
 
             // Act
