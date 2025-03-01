@@ -24,19 +24,21 @@ namespace DocumentProcessor
                     return;
                 }
 
-                if (args.Length != 2)
+                if (args.Length < 2)
                 {
-                    Console.WriteLine("Usage: DocumentProcessor.exe <source_file> <output_file>");
+                    Console.WriteLine("Usage: DocumentProcessor.exe <source_file> <output_file> [/check]");
                     Console.WriteLine("       DocumentProcessor.exe --create-test");
                     return;
                 }
 
                 string sourceFile = args[0];
                 string outputFile = args[1];
+                bool checkGrammar = args.Length > 2 && args[2].Equals("/check", StringComparison.OrdinalIgnoreCase);
 
                 Console.WriteLine($"\n=== Document Processing Started ===");
                 Console.WriteLine($"Source: {sourceFile}");
                 Console.WriteLine($"Output: {outputFile}");
+                Console.WriteLine($"Grammar check: {(checkGrammar ? "Enabled" : "Disabled")}");
 
                 // Load acronym configuration
                 var acronymConfig = LoadAcronymConfiguration();
@@ -68,6 +70,13 @@ namespace DocumentProcessor
 
                 var processor = new WordDocumentProcessor(options);
                 await processor.ProcessDocumentAsync();
+
+                // Run grammar check if requested
+                if (checkGrammar)
+                {
+                    var grammarChecker = new GrammarChecker(outputFile);
+                    grammarChecker.CheckAndFixGrammar();
+                }
 
                 Console.WriteLine("\n=== Processing Complete ===");
                 Console.WriteLine($"Output document ready at: {outputFile}");
