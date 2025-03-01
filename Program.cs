@@ -74,8 +74,16 @@ namespace DocumentProcessor
                 // Run grammar check if requested
                 if (checkGrammar)
                 {
-                    var grammarChecker = new GrammarChecker(outputFile);
-                    grammarChecker.CheckAndFixGrammar();
+                    try
+                    {
+                        var grammarChecker = new GrammarChecker(outputFile);
+                        grammarChecker.CheckAndFixGrammar();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"\nWarning: Grammar checking failed - {ex.Message}");
+                        Console.WriteLine("Continuing with document processing...");
+                    }
                 }
 
                 Console.WriteLine("\n=== Processing Complete ===");

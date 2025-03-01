@@ -1,29 +1,49 @@
 using Microsoft.Office.Interop.Word;
 using System;
+using System.Runtime.InteropServices;
 
 namespace DocumentProcessor.Services
 {
     public class GrammarChecker
     {
-        private readonly Application _wordApp;
-        private readonly Document _doc;
+        private readonly Application? _wordApp;
+        private readonly Document? _doc;
+        private readonly bool _isComSupported;
 
         public GrammarChecker(string filePath)
         {
             try
             {
+                // Check if running on Windows and COM is supported
+                _isComSupported = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+                if (!_isComSupported)
+                {
+                    Console.WriteLine("Warning: Grammar checking is only supported on Windows platforms.");
+                    return;
+                }
+
                 _wordApp = new Application { Visible = false };
                 _doc = _wordApp.Documents.Open(filePath);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error initializing Word application: {ex.Message}");
-                throw;
+                Console.WriteLine($"Warning: Grammar checking is not available - {ex.Message}");
+                _isComSupported = false;
+
+                // Ensure cleanup in case of partial initialization
+                if (_doc != null) _doc.Close();
+                if (_wordApp != null) _wordApp.Quit();
             }
         }
 
         public void CheckAndFixGrammar()
         {
+            if (!_isComSupported || _doc == null)
+            {
+                Console.WriteLine("Grammar checking skipped - not supported on this platform.");
+                return;
+            }
+
             try
             {
                 Console.WriteLine("\n=== Grammar Check Started ===");
@@ -55,6 +75,8 @@ namespace DocumentProcessor.Services
 
         private void ListGrammarErrors()
         {
+            if (_doc == null) return;
+
             var errorCount = _doc.GrammaticalErrors.Count;
             if (errorCount == 0)
             {
