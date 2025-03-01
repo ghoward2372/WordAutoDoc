@@ -17,21 +17,24 @@ namespace DocumentProcessor.Models.TagProcessors
             _htmlConverter = htmlConverter ?? throw new ArgumentNullException(nameof(htmlConverter));
         }
 
-        public async Task<string> ProcessTagAsync(string tagContent)
+        public Task<string> ProcessTagAsync(string tagContent)
         {
             var options = new DocumentProcessingOptions
             {
                 SourcePath = string.Empty,
                 OutputPath = string.Empty,
                 AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
+                AcronymProcessor = new AcronymProcessor(new Models.Configuration.AcronymConfiguration 
+                { 
+                    KnownAcronyms = new Dictionary<string, string>(),
+                    IgnoredAcronyms = new HashSet<string>() 
+                }),
                 HtmlConverter = new HtmlToWordConverter(),
                 FQDocumentField = string.Empty
             };
 
-            return await ProcessTagAsync(tagContent, options);
+            return ProcessTagAsync(tagContent, options);
         }
-
 
         public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options)
         {

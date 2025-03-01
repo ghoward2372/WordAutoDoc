@@ -29,15 +29,15 @@ namespace DocumentProcessor.Tests.Services
         {
             // Arrange
             var queryId = Guid.NewGuid().ToString();
-            var queryColumns = new List<WorkItemQueryColumn>
+            var fieldReferences = new List<WorkItemFieldReference>
             {
-                new WorkItemQueryColumn { Name = "ID", ReferenceName = "System.Id" },
-                new WorkItemQueryColumn { Name = "Title", ReferenceName = "System.Title" }
+                new WorkItemFieldReference { Name = "ID", ReferenceName = "System.Id" },
+                new WorkItemFieldReference { Name = "Title", ReferenceName = "System.Title" }
             };
 
             var query = new QueryHierarchyItem
             {
-                Columns = (IEnumerable<WorkItemFieldReference>)queryColumns
+                Columns = fieldReferences
             };
 
             var queryResult = new WorkItemQueryResult

@@ -3,12 +3,25 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Linq;
 using DocumentProcessor.Utilities;
+using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Services
 {
     public class AcronymProcessor
     {
-        private readonly Dictionary<string, string> _acronyms = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> _acronyms = new();
+        private readonly AcronymConfiguration _configuration;
+
+        public AcronymProcessor(AcronymConfiguration configuration)
+        {
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
+            // Initialize with known acronyms from configuration
+            foreach (var knownAcronym in _configuration.KnownAcronyms)
+            {
+                _acronyms[knownAcronym.Key] = knownAcronym.Value;
+            }
+        }
 
         public string ProcessText(string text)
         {
@@ -18,12 +31,32 @@ namespace DocumentProcessor.Services
             foreach (Match match in matches)
             {
                 string acronym = match.Groups[1].Value;
+
+                // Skip ignored acronyms
+                if (_configuration.IgnoredAcronyms.Contains(acronym))
+                {
+                    Console.WriteLine($"Skipping ignored acronym: {acronym}");
+                    continue;
+                }
+
                 if (!_acronyms.ContainsKey(acronym))
                 {
+                    // Look for definition in the text first
                     string definition = ExtractAcronymDefinition(text, match.Index);
                     if (!string.IsNullOrEmpty(definition))
                     {
+                        Console.WriteLine($"Found definition in document for {acronym}: {definition}");
                         _acronyms[acronym] = definition;
+                    }
+                    else if (_configuration.KnownAcronyms.TryGetValue(acronym, out var knownDefinition))
+                    {
+                        Console.WriteLine($"Using known definition for {acronym}: {knownDefinition}");
+                        _acronyms[acronym] = knownDefinition;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"No definition found for acronym: {acronym}");
+                        _acronyms[acronym] = string.Empty; // Store empty definition
                     }
                 }
             }
@@ -33,24 +66,44 @@ namespace DocumentProcessor.Services
 
         private string ExtractAcronymDefinition(string text, int acronymPosition)
         {
-            // Look for capitalized words before the acronym
-            var precedingText = text.Substring(0, acronymPosition);
-            var words = precedingText.Split(' ');
-            var capitalizedWords = new List<string>();
-
-            for (int i = words.Length - 1; i >= 0; i--)
+            try
             {
-                if (Regex.IsMatch(words[i], @"^[A-Z]"))
+                // Look for capitalized words before the acronym
+                var precedingText = text.Substring(0, acronymPosition);
+                var words = precedingText.Split(' ');
+                var capitalizedWords = new List<string>();
+
+                // Work backwards from the acronym position
+                for (int i = words.Length - 1; i >= 0; i--)
                 {
-                    capitalizedWords.Insert(0, words[i]);
+                    var word = words[i].Trim();
+                    if (string.IsNullOrEmpty(word)) continue;
+
+                    // Check if word starts with capital letter
+                    if (Regex.IsMatch(word, @"^[A-Z]"))
+                    {
+                        capitalizedWords.Insert(0, word);
+                    }
+                    else if (capitalizedWords.Count > 0)
+                    {
+                        // Stop when we hit a non-capitalized word after finding some capitalized words
+                        break;
+                    }
                 }
-                else if (capitalizedWords.Count > 0)
+
+                if (capitalizedWords.Count > 0)
                 {
-                    break;
+                    var definition = string.Join(" ", capitalizedWords);
+                    Console.WriteLine($"Extracted definition from text: {definition}");
+                    return definition;
                 }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error extracting acronym definition: {ex.Message}");
+            }
 
-            return string.Join(" ", capitalizedWords);
+            return string.Empty;
         }
 
         public Dictionary<string, string> GetAcronyms()
@@ -58,21 +111,23 @@ namespace DocumentProcessor.Services
             return new Dictionary<string, string>(_acronyms);
         }
 
-        public string GenerateAcronymTable()
+        public string[][] GetAcronymTableData()
         {
-            if (_acronyms.Count == 0)
-                return string.Empty;
-
-            var table = new System.Text.StringBuilder();
-            table.AppendLine("Acronym | Definition");
-            table.AppendLine("--------|------------");
-
-            foreach (var acronym in _acronyms.OrderBy(a => a.Key))
+            // Create header row
+            var tableData = new List<string[]>
             {
-                table.AppendLine($"{acronym.Key} | {acronym.Value}");
-            }
+                new[] { "Acronym", "Definition" }
+            };
 
-            return table.ToString();
+            // Add acronym rows, sorted alphabetically
+            tableData.AddRange(
+                _acronyms
+                    .Where(a => !_configuration.IgnoredAcronyms.Contains(a.Key))
+                    .OrderBy(a => a.Key)
+                    .Select(a => new[] { a.Key, a.Value })
+            );
+
+            return tableData.ToArray();
         }
     }
 }
