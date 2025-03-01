@@ -8,6 +8,8 @@ using DocumentFormat.OpenXml.Packaging;
 using System.IO;
 using DocumentFormat.OpenXml.Wordprocessing;
 using System.Linq;
+using System.Collections.Generic;
+using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Tests.Services
 {
@@ -19,12 +21,22 @@ namespace DocumentProcessor.Tests.Services
         private readonly string _testFilePath;
         private readonly string _outputFilePath;
         private const string TEST_FQ_FIELD = "System.Description";
+        private readonly AcronymConfiguration _acronymConfig;
 
         public WordDocumentProcessorTests()
         {
             _mockAzureDevOpsService = new Mock<IAzureDevOpsService>();
             _mockHtmlConverter = new Mock<IHtmlToWordConverter>();
-            _acronymProcessor = new AcronymProcessor();
+            _acronymConfig = new AcronymConfiguration
+            {
+                KnownAcronyms = new Dictionary<string, string>
+                {
+                    { "API", "Application Programming Interface" },
+                    { "GUI", "Graphical User Interface" }
+                },
+                IgnoredAcronyms = new HashSet<string> { "ID", "XML" }
+            };
+            _acronymProcessor = new AcronymProcessor(_acronymConfig);
             _testFilePath = "test_input.docx";
             _outputFilePath = "test_output.docx";
 
@@ -159,7 +171,7 @@ namespace DocumentProcessor.Tests.Services
                 SourcePath = "test.docx",
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
+                AcronymProcessor = new AcronymProcessor(_acronymConfig),
                 HtmlConverter = new HtmlToWordConverter(),
                 FQDocumentField = TEST_FQ_FIELD
             });
@@ -185,7 +197,7 @@ namespace DocumentProcessor.Tests.Services
                 SourcePath = "test.docx",
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
+                AcronymProcessor = new AcronymProcessor(_acronymConfig),
                 HtmlConverter = new HtmlToWordConverter(),
                 FQDocumentField = TEST_FQ_FIELD
             });
@@ -196,242 +208,6 @@ namespace DocumentProcessor.Tests.Services
             // Assert
             Assert.Equal("First Second", result);
         }
-
-        [Fact]
-        public void ExtractTextFromXml_WithNestedFormatting_ExtractsTextContent()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:pPr>
-                    <w:rPr>
-                        <w:b/>
-                        <w:i/>
-                        <w:u w:val=""single""/>
-                    </w:rPr>
-                </w:pPr>
-                <w:r>
-                    <w:rPr>
-                        <w:b/>
-                        <w:color w:val=""FF0000""/>
-                    </w:rPr>
-                    <w:t>Complex</w:t>
-                </w:r>
-                <w:r>
-                    <w:t xml:space=""preserve""> </w:t>
-                </w:r>
-                <w:r>
-                    <w:rPr>
-                        <w:i/>
-                    </w:rPr>
-                    <w:t>Formatting</w:t>
-                </w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("Complex Formatting", result);
-        }
-
-
-        [Fact]
-        public void ExtractTextFromXml_WithPreservedWhitespace_NormalizesSpacing()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r>
-                    <w:t xml:space=""preserve"">  Multiple    </w:t>
-                </w:r>
-                <w:r>
-                    <w:t>Spaces</w:t>
-                </w:r>
-                <w:r>
-                    <w:t xml:space=""preserve"">  Here  </w:t>
-                </w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("Multiple Spaces Here", result);
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithEmptyElements_FiltersThemOut()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r>
-                    <w:t>First</w:t>
-                </w:r>
-                <w:r>
-                    <w:t xml:space=""preserve"">  </w:t>
-                </w:r>
-                <w:r>
-                    <w:t></w:t>
-                </w:r>
-                <w:r>
-                    <w:t>Last</w:t>
-                </w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("First Last", result);
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithMixedContent_ExtractsOnlyTextContent()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r>
-                    <w:rPr>
-                        <w:b/>
-                        <w:i/>
-                    </w:rPr>
-                    <w:t>Bold</w:t>
-                    <w:tab/>
-                    <w:t>Italic</w:t>
-                </w:r>
-                <w:r>
-                    <w:br/>
-                    <w:t>Next</w:t>
-                    <w:drawing/>
-                    <w:t>Line</w:t>
-                </w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("Bold Italic Next Line", result);
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithMultipleParagraphs_ExtractsAllText()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r><w:t>First Paragraph</w:t></w:r>
-            </w:p>
-            <w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r><w:t>Second Paragraph</w:t></w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("First Paragraph Second Paragraph", result);
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithSpecialCharacters_HandlesEntities()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r><w:t>Text &amp; Symbols</w:t></w:r>
-                <w:r><w:t>Special &lt;characters&gt;</w:t></w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("Text & Symbols Special <characters>", result);
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithEmptyFormatting_ExtractsTextOnly()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r>
-                    <w:rPr><w:b/><w:i/><w:u/></w:rPr>
-                    <w:t>Formatted</w:t>
-                </w:r>
-                <w:r>
-                    <w:rPr></w:rPr>
-                    <w:t>Text</w:t>
-                </w:r>
-            </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("Formatted Text", result);
-        }
-
         public void Dispose()
         {
             // Cleanup

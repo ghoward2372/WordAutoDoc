@@ -1,8 +1,12 @@
 using DocumentProcessor.Models;
 using DocumentProcessor.Services;
 using DocumentProcessor.Tests;
+using DocumentProcessor.Models.Configuration;
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
+using System.IO;
 
 namespace DocumentProcessor
 {
@@ -34,6 +38,10 @@ namespace DocumentProcessor
                 Console.WriteLine($"Source: {sourceFile}");
                 Console.WriteLine($"Output: {outputFile}");
 
+                // Load acronym configuration
+                var acronymConfig = LoadAcronymConfiguration();
+                Console.WriteLine($"Loaded {acronymConfig.KnownAcronyms.Count} known acronyms and {acronymConfig.IgnoredAcronyms.Count} ignored acronyms");
+
                 // Initialize services with configuration
                 IAzureDevOpsService? adoService = null;
                 try
@@ -53,7 +61,7 @@ namespace DocumentProcessor
                     SourcePath = sourceFile,
                     OutputPath = outputFile,
                     AzureDevOpsService = adoService,
-                    AcronymProcessor = new AcronymProcessor(),
+                    AcronymProcessor = new AcronymProcessor(acronymConfig),
                     HtmlConverter = new HtmlToWordConverter(),
                     FQDocumentField = config.FQDocumentFieldName
                 };
@@ -70,6 +78,40 @@ namespace DocumentProcessor
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine($"Stack Trace: {ex.StackTrace}");
                 Environment.Exit(1);
+            }
+        }
+
+        private static AcronymConfiguration LoadAcronymConfiguration()
+        {
+            try
+            {
+                string configPath = "acronyms.json";
+                if (!File.Exists(configPath))
+                {
+                    Console.WriteLine("Warning: acronyms.json not found, using empty configuration");
+                    return new AcronymConfiguration
+                    {
+                        KnownAcronyms = new Dictionary<string, string>(),
+                        IgnoredAcronyms = new HashSet<string>()
+                    };
+                }
+
+                string jsonContent = File.ReadAllText(configPath);
+                var config = JsonSerializer.Deserialize<AcronymConfiguration>(jsonContent);
+                if (config == null)
+                {
+                    throw new InvalidOperationException("Failed to deserialize acronym configuration");
+                }
+                return config;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading acronym configuration: {ex.Message}");
+                return new AcronymConfiguration
+                {
+                    KnownAcronyms = new Dictionary<string, string>(),
+                    IgnoredAcronyms = new HashSet<string>()
+                };
             }
         }
     }

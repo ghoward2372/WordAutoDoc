@@ -1,0 +1,15 @@
+{
+    "KnownAcronyms": {
+        "API": "Application Programming Interface",
+        "GUI": "Graphical User Interface",
+        "ADO": "Azure DevOps",
+        "CLI": "Command Line Interface",
+        "SDK": "Software Development Kit"
+    },
+    "IgnoredAcronyms": [
+        "ID",
+        "OK",
+        "XML",
+        "URL"
+    ]
+}

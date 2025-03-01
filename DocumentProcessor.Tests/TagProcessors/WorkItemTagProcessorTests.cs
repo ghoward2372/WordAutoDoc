@@ -5,6 +5,8 @@ using System;
 using System.Threading.Tasks;
 using Xunit;
 using Moq;
+using System.Collections.Generic;
+using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Tests.TagProcessors
 {
@@ -15,6 +17,7 @@ namespace DocumentProcessor.Tests.TagProcessors
         private readonly WorkItemTagProcessor _processor;
         private readonly DocumentProcessingOptions _options;
         private const string TEST_FQ_FIELD = "System.Description";
+        private readonly AcronymConfiguration _acronymConfig;
 
         public WorkItemTagProcessorTests()
         {
@@ -22,12 +25,22 @@ namespace DocumentProcessor.Tests.TagProcessors
             _mockHtmlConverter = new Mock<IHtmlToWordConverter>();
             _processor = new WorkItemTagProcessor(_mockAzureDevOpsService.Object, _mockHtmlConverter.Object);
 
+            _acronymConfig = new AcronymConfiguration
+            {
+                KnownAcronyms = new Dictionary<string, string>
+                {
+                    { "API", "Application Programming Interface" },
+                    { "GUI", "Graphical User Interface" }
+                },
+                IgnoredAcronyms = new HashSet<string> { "ID", "XML" }
+            };
+
             _options = new DocumentProcessingOptions
             {
                 SourcePath = "test.docx",
                 OutputPath = "output.docx",
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
-                AcronymProcessor = new AcronymProcessor(),
+                AcronymProcessor = new AcronymProcessor(_acronymConfig),
                 HtmlConverter = _mockHtmlConverter.Object,
                 FQDocumentField = TEST_FQ_FIELD
             };
@@ -81,7 +94,7 @@ namespace DocumentProcessor.Tests.TagProcessors
                 .ReturnsAsync(nullContent);
 
             _mockHtmlConverter
-                .Setup(x => x.ConvertHtmlToWordFormat(It.IsAny<string>()))
+                .Setup(x => x.ConvertHtmlToWordFormat(string.Empty))
                 .Returns(string.Empty);
 
             // Act
