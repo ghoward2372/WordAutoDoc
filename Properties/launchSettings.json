@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DocumentProcessor": {
+      "commandName": "Project",
+      "commandLineArgs": "c:\\temp\\test_document2.docx\r\nc:\\temp\\output.docx"
+    }
+  }
+}

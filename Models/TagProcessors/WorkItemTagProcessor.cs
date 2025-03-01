@@ -1,6 +1,6 @@
+using DocumentProcessor.Services;
 using System;
 using System.Threading.Tasks;
-using DocumentProcessor.Services;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
@@ -15,14 +15,14 @@ namespace DocumentProcessor.Models.TagProcessors
             _htmlConverter = htmlConverter ?? throw new ArgumentNullException(nameof(htmlConverter));
         }
 
-        public async Task<string> ProcessTagAsync(string tagContent)
+        public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options)
         {
             if (!int.TryParse(tagContent, out int workItemId))
             {
                 throw new ArgumentException($"Invalid work item ID: {tagContent}");
             }
 
-            var documentText = await _azureDevOpsService.GetWorkItemDocumentTextAsync(workItemId);
+            var documentText = await _azureDevOpsService.GetWorkItemDocumentTextAsync(workItemId, options.FQDocumentField);
             return _htmlConverter.ConvertHtmlToWordFormat(documentText ?? string.Empty);
         }
     }

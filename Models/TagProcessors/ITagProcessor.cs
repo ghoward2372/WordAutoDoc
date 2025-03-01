@@ -4,6 +4,6 @@ namespace DocumentProcessor.Models.TagProcessors
 {
     public interface ITagProcessor
     {
-        Task<string> ProcessTagAsync(string tagContent);
+        Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options);
     }
 }

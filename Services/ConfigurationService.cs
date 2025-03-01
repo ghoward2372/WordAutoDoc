@@ -1,9 +1,7 @@
+using DocumentProcessor.Models.Configuration;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Configuration.Json;
-using Microsoft.Extensions.Configuration.EnvironmentVariables;
-using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Services
 {
@@ -33,6 +31,11 @@ namespace DocumentProcessor.Services
                     adoConfig.PersonalAccessToken = configuration["PAT"];
                 if (!string.IsNullOrEmpty(configuration["BASEURL"]))
                     adoConfig.BaseUrl = configuration["BASEURL"];
+                if (!string.IsNullOrEmpty(configuration["PROJECTNAME"]))
+                    adoConfig.BaseUrl = configuration["PROJECTNAME"];
+                if (!string.IsNullOrEmpty(configuration["FQDOCUMENTFIELDNAME"]))
+                    adoConfig.BaseUrl = configuration["FQDOCUMENTFIELDNAME"];
+
 
                 return adoConfig;
             }

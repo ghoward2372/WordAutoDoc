@@ -4,15 +4,14 @@ using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using System.Linq;
-using DocumentProcessor.Models.Configuration;
+using System.Threading.Tasks;
 
 namespace DocumentProcessor.Services
 {
     public interface IAzureDevOpsService
     {
-        Task<string> GetWorkItemDocumentTextAsync(int workItemId);
+        Task<string> GetWorkItemDocumentTextAsync(int workItemId, string fqDocumentField);
         Task<WorkItemQueryResult> ExecuteQueryAsync(string queryId);
         Task<QueryHierarchyItem> GetQueryAsync(string queryId);
         Task<IEnumerable<WorkItem>> GetWorkItemsAsync(IEnumerable<int> workItemIds, IEnumerable<string>? fields = null);
@@ -21,6 +20,7 @@ namespace DocumentProcessor.Services
     public class AzureDevOpsService : IAzureDevOpsService
     {
         private readonly WorkItemTrackingHttpClient _witClient;
+        private static string _projectName;
 
         public AzureDevOpsService(WorkItemTrackingHttpClient witClient)
         {
@@ -32,6 +32,7 @@ namespace DocumentProcessor.Services
             var config = ConfigurationService.LoadAzureDevOpsConfig();
             var credentials = new VssBasicCredential(string.Empty, config.PersonalAccessToken);
             var connection = new VssConnection(new Uri(config.BaseUrl), credentials);
+            _projectName = config.ProjectName;
 
             try
             {
@@ -44,7 +45,7 @@ namespace DocumentProcessor.Services
             }
         }
 
-        public async Task<string> GetWorkItemDocumentTextAsync(int workItemId)
+        public async Task<string> GetWorkItemDocumentTextAsync(int workItemId, string fqDocumentField)
         {
             try
             {
@@ -54,7 +55,7 @@ namespace DocumentProcessor.Services
                     throw new InvalidOperationException($"Work item {workItemId} or its fields are null");
                 }
 
-                return workItem.Fields.TryGetValue("CAFRS.CAFRSSystem.DocumentPart.DocumentText", out object? value)
+                return workItem.Fields.TryGetValue(fqDocumentField, out object? value)
                     ? value?.ToString() ?? string.Empty
                     : string.Empty;
             }
@@ -87,7 +88,7 @@ namespace DocumentProcessor.Services
                     throw new ArgumentException("Invalid query ID format. Expected a GUID.");
 
                 // The project parameter is required but can be empty for organization-wide queries
-                return await _witClient.GetQueryAsync(string.Empty, guid.ToString());
+                return await _witClient.GetQueryAsync(_projectName, guid.ToString(), QueryExpand.All);
             }
             catch (Exception ex)
             {

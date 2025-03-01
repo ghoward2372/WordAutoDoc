@@ -1,5 +1,5 @@
-using DocumentProcessor.Services;
 using DocumentProcessor.Models;
+using DocumentProcessor.Services;
 using DocumentProcessor.Tests;
 using System;
 using System.Threading.Tasks;
@@ -46,6 +46,7 @@ namespace DocumentProcessor
                     Console.WriteLine($"Warning: Azure DevOps integration not available - {ex.Message}");
                     Console.WriteLine("Continuing with limited functionality (acronym processing only).");
                 }
+                var config = ConfigurationService.LoadAzureDevOpsConfig();
 
                 var options = new DocumentProcessingOptions
                 {
@@ -53,7 +54,8 @@ namespace DocumentProcessor
                     OutputPath = outputFile,
                     AzureDevOpsService = adoService,
                     AcronymProcessor = new AcronymProcessor(),
-                    HtmlConverter = new HtmlToWordConverter()
+                    HtmlConverter = new HtmlToWordConverter(),
+                    FQDocumentField = config.FQDocumentFieldName
                 };
 
                 var processor = new WordDocumentProcessor(options);

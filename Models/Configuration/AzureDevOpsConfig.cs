@@ -14,6 +14,13 @@ namespace DocumentProcessor.Models.Configuration
         [JsonPropertyName("baseUrl")]
         public string BaseUrl { get; set; } = "https://dev.azure.com";
 
+        [JsonPropertyName("projectName")]
+        public string ProjectName { get; set; } = string.Empty;
+
+        [JsonPropertyName("FQDocumentFieldName")]
+        public string FQDocumentFieldName { get; set; } = string.Empty;
+
+
         public string GetConnectionUrl()
         {
             if (string.IsNullOrEmpty(Organization))

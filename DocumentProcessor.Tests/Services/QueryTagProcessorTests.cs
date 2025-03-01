@@ -1,14 +1,13 @@
-using System;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Linq;
+using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Services;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Moq;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Xunit;
-using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocumentProcessor.Tests.Services
 {
@@ -38,7 +37,7 @@ namespace DocumentProcessor.Tests.Services
 
             var query = new QueryHierarchyItem
             {
-                Columns = queryColumns
+                Columns = (IEnumerable<WorkItemFieldReference>)queryColumns
             };
 
             var queryResult = new WorkItemQueryResult
@@ -92,9 +91,8 @@ namespace DocumentProcessor.Tests.Services
                 data => data.Length == 3 && // Header + 2 data rows
                        data[0].SequenceEqual(new[] { "ID", "Title" }) &&
                        data[1].SequenceEqual(new[] { "1", "First Item" }) &&
-                       data[2].SequenceEqual(new[] { "2", "Second Item" }))),
-                Times.Once);
-
+                       data[2].SequenceEqual(new[] { "2", "Second Item" })))
+                ).Returns(mockTable);
 
             // Act
             var result = await _processor.ProcessTagAsync(queryId);
@@ -126,7 +124,7 @@ namespace DocumentProcessor.Tests.Services
             var queryId = Guid.NewGuid().ToString();
             var query = new QueryHierarchyItem
             {
-                Columns = new List<WorkItemQueryColumn>()
+                Columns = new List<WorkItemFieldReference>()
             };
 
             _mockAzureDevOpsService.Setup(x => x.GetQueryAsync(queryId)).ReturnsAsync(query);
