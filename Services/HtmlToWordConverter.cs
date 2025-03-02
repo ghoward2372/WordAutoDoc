@@ -16,6 +16,8 @@ namespace DocumentProcessor.Services
             if (string.IsNullOrEmpty(html))
                 return string.Empty;
 
+            Console.WriteLine($"Converting HTML content: {html}");
+
             // Skip processing if this is our special AcronymTable tag
             if (html.Contains("[[AcronymTable"))
                 return html;
@@ -26,10 +28,13 @@ namespace DocumentProcessor.Services
             {
                 try
                 {
+                    Console.WriteLine($"Found table match: {tableMatch.Value}");
                     var tableData = ExtractTableData(tableMatch.Value);
                     var wordTable = CreateTable(tableData);
+                    var tableXml = wordTable.OuterXml;
+                    Console.WriteLine($"Created Word table XML: {tableXml}");
                     // Replace the HTML table with Word table XML
-                    html = html.Replace(tableMatch.Value, wordTable.OuterXml);
+                    html = html.Replace(tableMatch.Value, tableXml);
                 }
                 catch (Exception ex)
                 {
@@ -54,12 +59,14 @@ namespace DocumentProcessor.Services
             // Remove any remaining HTML tags except our Word table XML
             html = Regex.Replace(html, @"<(?!w:)[^>]+>", string.Empty);
 
+            Console.WriteLine($"Converted content: {html}");
             return html.Trim();
         }
 
         private string[][] ExtractTableData(string tableHtml)
         {
             var rows = new List<string[]>();
+            Console.WriteLine("Extracting table data from HTML...");
 
             // Extract rows
             var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline);
@@ -76,10 +83,14 @@ namespace DocumentProcessor.Services
                     cellContent = Regex.Replace(cellContent, @"<[^>]+>", string.Empty); // Remove any nested HTML
                     cellContent = WebUtility.HtmlDecode(cellContent).Trim();
                     cells.Add(cellContent);
+                    Console.WriteLine($"Extracted cell content: {cellContent}");
                 }
 
                 if (cells.Any())
+                {
                     rows.Add(cells.ToArray());
+                    Console.WriteLine($"Added row with {cells.Count} cells");
+                }
             }
 
             return rows.ToArray();
@@ -90,6 +101,7 @@ namespace DocumentProcessor.Services
             if (data == null || data.Length == 0)
                 throw new ArgumentException("Table data cannot be null or empty");
 
+            Console.WriteLine($"Creating table with {data.Length} rows");
             var table = new Table();
 
             // Table properties
@@ -122,6 +134,14 @@ namespace DocumentProcessor.Services
                 var rowData = data[i];
                 var row = new TableRow();
 
+                if (i == 0) // Header row
+                {
+                    row.AppendChild(new TableRowProperties(
+                        new TableRowHeight { Val = 400 },
+                        new TableHeader()
+                    ));
+                }
+
                 // Ensure correct number of cells in each row
                 for (int j = 0; j < columnCount; j++)
                 {
@@ -145,16 +165,14 @@ namespace DocumentProcessor.Services
                             new SpacingBetweenLines { Before = "0", After = "0" }
                         ),
                         new Run(
-                            new OpenXmlElement[]
-                            {
-                                (i == 0) ? new RunProperties(new Bold()) : new RunProperties(),
-                                new Text(j < rowData.Length ? rowData[j] : string.Empty)
-                            }
+                            i == 0 ? new RunProperties(new Bold()) : null,
+                            new Text(j < rowData.Length ? rowData[j] : string.Empty)
                         )
                     );
 
                     cell.AppendChild(paragraph);
                     row.AppendChild(cell);
+                    Console.WriteLine($"Added cell with content: {(j < rowData.Length ? rowData[j] : string.Empty)}");
                 }
 
                 table.AppendChild(row);
