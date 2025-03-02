@@ -93,11 +93,10 @@ namespace DocumentProcessor.Tests.TagProcessors
         {
             // Arrange
             const int workItemId = 1234;
-            string? nullContent = null;
 
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
-                .ReturnsAsync(nullContent);
+                .ReturnsAsync((string?)null); //Explicitly returning null
 
             // Act
             var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
