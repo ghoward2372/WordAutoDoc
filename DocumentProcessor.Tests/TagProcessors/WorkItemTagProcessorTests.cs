@@ -66,24 +66,30 @@ namespace DocumentProcessor.Tests.TagProcessors
             var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
 
             // Assert
-            Assert.Equal(processedContent, result);
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Equal(processedContent, result.ProcessedText);
             _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD), Times.Once);
             _mockHtmlConverter.Verify(x => x.ConvertHtmlToWordFormat(rawContent), Times.Once);
         }
 
         [Fact]
-        public async Task ProcessTagAsync_InvalidWorkItemId_ThrowsArgumentException()
+        public async Task ProcessTagAsync_InvalidWorkItemId_ReturnsErrorMessage()
         {
             // Arrange
             const string invalidId = "invalid";
 
-            // Act & Assert
-            await Assert.ThrowsAsync<ArgumentException>(() => 
-                _processor.ProcessTagAsync(invalidId, _options));
+            // Act
+            var result = await _processor.ProcessTagAsync(invalidId, _options);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Contains("Invalid work item ID", result.ProcessedText);
         }
 
         [Fact]
-        public async Task ProcessTagAsync_ServiceReturnsNull_ReturnsEmptyString()
+        public async Task ProcessTagAsync_ServiceReturnsNull_ReturnsEmptyResult()
         {
             // Arrange
             const int workItemId = 1234;
@@ -93,15 +99,13 @@ namespace DocumentProcessor.Tests.TagProcessors
                 .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
                 .ReturnsAsync(nullContent);
 
-            _mockHtmlConverter
-                .Setup(x => x.ConvertHtmlToWordFormat(string.Empty))
-                .Returns(string.Empty);
-
             // Act
             var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
 
             // Assert
-            Assert.Equal(string.Empty, result);
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Equal(string.Empty, result.ProcessedText);
         }
     }
 }

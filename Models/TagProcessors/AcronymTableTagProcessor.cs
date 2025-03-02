@@ -1,5 +1,6 @@
 using DocumentProcessor.Services;
 using System.Threading.Tasks;
+using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
@@ -14,19 +15,19 @@ namespace DocumentProcessor.Models.TagProcessors
             _htmlConverter = htmlConverter;
         }
 
-        public Task<string> ProcessTagAsync(string tagContent)
+        public Task<ProcessingResult> ProcessTagAsync(string tagContent)
+        {
+            return ProcessTagAsync(tagContent, null);
+        }
+
+        public Task<ProcessingResult> ProcessTagAsync(string tagContent, DocumentProcessingOptions? options)
         {
             var tableData = _acronymProcessor.GetAcronymTableData();
             if (tableData.Length <= 1) // Only header row
-                return Task.FromResult("No acronyms found.");
+                return Task.FromResult(ProcessingResult.FromText("No acronyms found."));
 
             var table = _htmlConverter.CreateTable(tableData);
-            return Task.FromResult(table.OuterXml);
-        }
-
-        public Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options)
-        {
-            return ProcessTagAsync(tagContent);
+            return Task.FromResult(ProcessingResult.FromTable(table));
         }
     }
 }

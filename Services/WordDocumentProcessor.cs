@@ -9,7 +9,6 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.Xml;
 
 namespace DocumentProcessor.Services
 {
@@ -141,7 +140,7 @@ namespace DocumentProcessor.Services
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
-                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag]");
+                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag: {ex.Message}]");
                     }
                 }
             }
