@@ -59,7 +59,6 @@ namespace DocumentProcessor.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing document: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }
@@ -81,7 +80,7 @@ namespace DocumentProcessor.Services
                     try
                     {
                         var table = processed.TableElement;
-                        Console.WriteLine("Processing table element...");
+                        Console.WriteLine("Inserting table into document...");
 
                         // Add namespace to table if missing
                         if (!table.OuterXml.Contains("xmlns:w="))
@@ -100,7 +99,6 @@ namespace DocumentProcessor.Services
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error inserting table: {ex.Message}");
-                        Console.WriteLine($"Stack trace: {ex.StackTrace}");
                         throw;
                     }
                 }
@@ -115,7 +113,7 @@ namespace DocumentProcessor.Services
 
         private async Task<ProcessingResult> ProcessTextAsync(string text)
         {
-            var result = new ProcessingResult { ProcessedText = text };
+            var result = ProcessingResult.FromText(text);
 
             foreach (var tagProcessor in _tagProcessors)
             {
@@ -130,18 +128,15 @@ namespace DocumentProcessor.Services
                         var tagContent = match.Groups[1].Value;
                         var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
 
-                        Console.WriteLine($"Processed content length: {processedContent.Length}");
-                        Console.WriteLine($"Contains table XML: {processedContent.Contains("<w:tbl")}");
-
-                        if (IsTableXml(processedContent))
+                        // If the tag processor returned a table, use it directly
+                        if (processedContent.IsTable && processedContent.TableElement != null)
                         {
-                            Console.WriteLine("Table XML detected, creating table element");
-                            result.IsTable = true;
-                            result.TableElement = CreateTableFromXml(processedContent);
-                            return result;
+                            Console.WriteLine("Table found in processed content");
+                            return processedContent;
                         }
 
-                        text = text.Replace(match.Value, processedContent);
+                        // Otherwise, replace the tag with the processed text
+                        text = text.Replace(match.Value, processedContent.ProcessedText);
                     }
                     catch (Exception ex)
                     {
@@ -151,58 +146,9 @@ namespace DocumentProcessor.Services
                 }
             }
 
-            // Only process acronyms if no table was detected
+            // Process acronyms only for non-table content
             result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
             return result;
-        }
-
-        private bool IsTableXml(string content)
-        {
-            if (string.IsNullOrEmpty(content))
-                return false;
-
-            var trimmedContent = content.Trim();
-            var isTable = trimmedContent.Contains("<w:tbl");
-
-            if (isTable)
-            {
-                Console.WriteLine("Found table XML content");
-            }
-
-            return isTable;
-        }
-
-        private Table CreateTableFromXml(string tableXml)
-        {
-            try
-            {
-                Console.WriteLine($"Creating table from XML:\n{tableXml}");
-                var doc = new XmlDocument();
-                doc.LoadXml(tableXml);
-
-                // Set up namespace manager for XPath
-                var nsmgr = new XmlNamespaceManager(doc.NameTable);
-                nsmgr.AddNamespace("w", WordMlNamespace);
-
-                // Find table node using namespace-aware XPath
-                var tableNode = doc.SelectSingleNode("//w:tbl", nsmgr);
-                if (tableNode == null)
-                {
-                    throw new InvalidOperationException("No table found in XML content");
-                }
-
-                var table = new Table();
-                table.InnerXml = tableNode.InnerXml;
-                Console.WriteLine("Table created successfully");
-
-                return table;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error creating table from XML: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                throw;
-            }
         }
     }
 }

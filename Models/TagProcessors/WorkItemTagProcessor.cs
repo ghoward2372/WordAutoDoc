@@ -1,8 +1,11 @@
 using DocumentProcessor.Services;
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Text;
+using System.Net;
+using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
@@ -20,23 +23,23 @@ namespace DocumentProcessor.Models.TagProcessors
             _textBlockProcessor = new TextBlockProcessor();
         }
 
-        public Task<string> ProcessTagAsync(string tagContent)
+        public Task<ProcessingResult> ProcessTagAsync(string tagContent)
         {
             return ProcessTagAsync(tagContent, null);
         }
 
-        public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions? options)
+        public async Task<ProcessingResult> ProcessTagAsync(string tagContent, DocumentProcessingOptions? options)
         {
             if (!int.TryParse(tagContent, out int workItemId))
             {
-                throw new ArgumentException($"Invalid work item ID: {tagContent}");
+                return ProcessingResult.FromText($"Invalid work item ID: {tagContent}");
             }
 
             try
             {
                 var documentText = await _azureDevOpsService.GetWorkItemDocumentTextAsync(workItemId, options?.FQDocumentField ?? string.Empty);
                 if (string.IsNullOrEmpty(documentText))
-                    return string.Empty;
+                    return ProcessingResult.FromText(string.Empty);
 
                 Console.WriteLine($"\n=== Processing Work Item {workItemId} ===");
                 Console.WriteLine($"Raw document text:\n{documentText}");
@@ -45,10 +48,20 @@ namespace DocumentProcessor.Models.TagProcessors
                 var blocks = _textBlockProcessor.SegmentText(documentText);
                 Console.WriteLine($"Text segmented into {blocks.Count} blocks");
 
-                var processedContent = new StringBuilder();
-                var hasTableContent = false;
+                // If we only have one block and it's a table, convert it directly to a table
+                if (blocks.Count == 1 && blocks[0].Type == TextBlockProcessor.BlockType.Table)
+                {
+                    Console.WriteLine("Processing single table block");
+                    var tableData = ExtractTableData(blocks[0].Content);
+                    if (tableData.Length > 0)
+                    {
+                        var table = _htmlConverter.CreateTable(tableData);
+                        return ProcessingResult.FromTable(table);
+                    }
+                }
 
-                // Process each block according to its type
+                // Process multiple blocks
+                var processedContent = new StringBuilder();
                 foreach (var block in blocks)
                 {
                     Console.WriteLine($"\nProcessing block type: {block.Type}");
@@ -57,19 +70,21 @@ namespace DocumentProcessor.Models.TagProcessors
                     if (block.Type == TextBlockProcessor.BlockType.Table)
                     {
                         Console.WriteLine("Converting table block to Word format...");
-                        var tableContent = _htmlConverter.ConvertHtmlToWordFormat(block.Content);
-                        Console.WriteLine($"Initial converted table content:\n{tableContent}");
-
-                        // Ensure proper XML structure for tables
-                        if (tableContent.Contains("<w:tbl") && !tableContent.Contains("xmlns:w="))
+                        var tableData = ExtractTableData(block.Content);
+                        if (tableData.Length > 0)
                         {
-                            tableContent = tableContent.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
-                            Console.WriteLine("Added XML namespace to table");
-                        }
+                            var table = _htmlConverter.CreateTable(tableData);
+                            var tableXml = table.OuterXml;
 
-                        Console.WriteLine($"Final table XML:\n{tableContent}");
-                        processedContent.Append(tableContent);
-                        hasTableContent = true;
+                            // Always add namespace for table XML
+                            if (!tableXml.Contains("xmlns:w="))
+                            {
+                                tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                            }
+
+                            Console.WriteLine($"Generated table XML:\n{tableXml}");
+                            processedContent.Append(tableXml);
+                        }
                     }
                     else
                     {
@@ -86,14 +101,57 @@ namespace DocumentProcessor.Models.TagProcessors
                 Console.WriteLine($"Total length: {result.Length}");
                 Console.WriteLine($"Content preview: {(result.Length > 100 ? result.Substring(0, 100) + "..." : result)}");
 
-                return result;
+                return ProcessingResult.FromText(result);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing work item {tagContent}: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
+        }
+
+        private string[][] ExtractTableData(string tableHtml)
+        {
+            Console.WriteLine($"Extracting data from table HTML:\n{tableHtml}");
+            var rows = new List<string[]>();
+
+            // Extract rows
+            var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            Console.WriteLine($"Found {rowMatches.Count} rows");
+
+            foreach (Match rowMatch in rowMatches)
+            {
+                var cells = new List<string>();
+
+                // Extract cells (both th and td)
+                var cellMatches = Regex.Matches(rowMatch.Value, @"<(td|th)[^>]*>(.*?)</(?:td|th)>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                foreach (Match cellMatch in cellMatches)
+                {
+                    var cellContent = cellMatch.Groups[2].Value;
+                    cellContent = Regex.Replace(cellContent, @"<[^>]+>", string.Empty);
+                    cellContent = WebUtility.HtmlDecode(cellContent).Trim();
+                    cells.Add(cellContent);
+                }
+
+                if (cells.Count > 0)
+                {
+                    rows.Add(cells.ToArray());
+                }
+            }
+
+            if (rows.Count == 0)
+            {
+                Console.WriteLine("Warning: No valid data found in table");
+                return new string[0][];
+            }
+
+            Console.WriteLine($"Extracted {rows.Count} rows with {rows[0].Length} columns");
+            foreach (var row in rows)
+            {
+                Console.WriteLine($"Row data: {string.Join(" | ", row)}");
+            }
+
+            return rows.ToArray();
         }
     }
 }

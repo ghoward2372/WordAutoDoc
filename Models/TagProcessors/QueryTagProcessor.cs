@@ -1,4 +1,5 @@
 using DocumentProcessor.Services;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,12 +19,12 @@ namespace DocumentProcessor.Models.TagProcessors
             _htmlConverter = htmlConverter ?? throw new ArgumentNullException(nameof(htmlConverter));
         }
 
-        public Task<string> ProcessTagAsync(string tagContent)
+        public Task<ProcessingResult> ProcessTagAsync(string tagContent)
         {
             return ProcessTagAsync(tagContent, null);
         }
 
-        public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions? options)
+        public async Task<ProcessingResult> ProcessTagAsync(string tagContent, DocumentProcessingOptions? options)
         {
             try
             {
@@ -31,18 +32,18 @@ namespace DocumentProcessor.Models.TagProcessors
 
                 if (!Guid.TryParse(tagContent, out var queryId))
                 {
-                    return "Invalid query ID format. Expected a GUID.";
+                    return ProcessingResult.FromText("Invalid query ID format. Expected a GUID.");
                 }
 
                 // First get the query definition to determine columns
                 var query = await _azureDevOpsService.GetQueryAsync(tagContent);
                 if (query?.Columns == null || !query.Columns.Any())
-                    return "No columns defined in query.";
+                    return ProcessingResult.FromText("No columns defined in query.");
 
                 // Execute the query to get work item references
                 var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
                 if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
-                    return "No results found for query.";
+                    return ProcessingResult.FromText("No results found for query.");
 
                 // Get work items with only the fields specified in the query
                 var workItems = await _azureDevOpsService.GetWorkItemsAsync(
@@ -51,7 +52,7 @@ namespace DocumentProcessor.Models.TagProcessors
                 );
 
                 if (!workItems.Any())
-                    return "No work items found.";
+                    return ProcessingResult.FromText("No work items found.");
 
                 Console.WriteLine($"Query returned {workItems.Count()} work items");
 
@@ -78,21 +79,12 @@ namespace DocumentProcessor.Models.TagProcessors
                 }
 
                 var table = _htmlConverter.CreateTable(tableData.ToArray());
-                var tableXml = table.OuterXml;
-
-                // Ensure proper table XML structure with namespace
-                if (!tableXml.Contains("xmlns:w="))
-                {
-                    tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
-                }
-
-                Console.WriteLine($"Generated table XML: {tableXml}");
-                return tableXml;
+                return ProcessingResult.FromTable(table);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing query {tagContent}: {ex.Message}");
-                return $"Error processing query: {ex.Message}";
+                return ProcessingResult.FromText($"Error processing query: {ex.Message}");
             }
         }
 
