@@ -40,11 +40,10 @@ namespace DocumentProcessor.Services
             try
             {
                 Console.WriteLine($"\n=== Starting Document Processing ===");
-                Console.WriteLine($"Source document: {_options.SourcePath}");
-                Console.WriteLine($"Output document: {_options.OutputPath}");
+                Console.WriteLine($"Source: {_options.SourcePath}");
+                Console.WriteLine($"Output: {_options.OutputPath}");
 
                 File.Copy(_options.SourcePath, _options.OutputPath, true);
-                Console.WriteLine("Created output document successfully");
 
                 using (var doc = WordprocessingDocument.Open(_options.OutputPath, true))
                 {
@@ -59,8 +58,7 @@ namespace DocumentProcessor.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"\n=== Document Processing Failed ===");
-                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"Error processing document: {ex.Message}");
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
@@ -69,7 +67,7 @@ namespace DocumentProcessor.Services
         private async Task ProcessDocumentContentAsync(Body body)
         {
             var paragraphsToProcess = body.Elements<Paragraph>().ToList();
-            Console.WriteLine($"\n=== Processing {paragraphsToProcess.Count} Paragraphs ===");
+            Console.WriteLine($"Processing {paragraphsToProcess.Count} paragraphs");
 
             foreach (var paragraph in paragraphsToProcess)
             {
@@ -80,11 +78,10 @@ namespace DocumentProcessor.Services
 
                 if (processed.IsTable && processed.TableElement != null)
                 {
-                    Console.WriteLine("\n=== Table Processing ===");
                     try
                     {
                         var table = processed.TableElement;
-                        Console.WriteLine($"Table XML before insertion: {table.OuterXml}");
+                        Console.WriteLine("Processing table element...");
 
                         // Add namespace to table if missing
                         if (!table.OuterXml.Contains("xmlns:w="))
@@ -96,24 +93,22 @@ namespace DocumentProcessor.Services
                         }
 
                         // Insert table and remove original paragraph
-                        Console.WriteLine("Inserting table into document");
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
-
-                        Console.WriteLine("Table successfully inserted into document");
+                        Console.WriteLine("Table inserted successfully");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error during table insertion: {ex.Message}");
+                        Console.WriteLine($"Error inserting table: {ex.Message}");
+                        Console.WriteLine($"Stack trace: {ex.StackTrace}");
                         throw;
                     }
                 }
-                else if (!processed.IsTable && text != processed.ProcessedText)
+                else if (text != processed.ProcessedText)
                 {
-                    Console.WriteLine("Updating paragraph with processed text");
-                    var processedText = _options.AcronymProcessor.ProcessText(processed.ProcessedText);
+                    Console.WriteLine("Updating paragraph text");
                     paragraph.RemoveAllChildren();
-                    paragraph.AppendChild(new Run(new Text(processedText)));
+                    paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
                 }
             }
         }
@@ -135,30 +130,29 @@ namespace DocumentProcessor.Services
                         var tagContent = match.Groups[1].Value;
                         var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
 
-                        Console.WriteLine($"Processed content from {tagProcessor.Key} tag processor:");
-                        Console.WriteLine(processedContent);
+                        Console.WriteLine($"Processed content length: {processedContent.Length}");
+                        Console.WriteLine($"Contains table XML: {processedContent.Contains("<w:tbl")}");
 
                         if (IsTableXml(processedContent))
                         {
-                            Console.WriteLine("Table XML detected, creating Word table...");
+                            Console.WriteLine("Table XML detected, creating table element");
                             result.IsTable = true;
                             result.TableElement = CreateTableFromXml(processedContent);
                             return result;
                         }
 
                         text = text.Replace(match.Value, processedContent);
-                        Console.WriteLine($"Updated text after processing {tagProcessor.Key} tag: {text}");
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
-                        Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag: {ex.Message}]");
+                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag]");
                     }
                 }
             }
 
-            result.ProcessedText = text;
+            // Only process acronyms if no table was detected
+            result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
             return result;
         }
 
@@ -168,21 +162,21 @@ namespace DocumentProcessor.Services
                 return false;
 
             var trimmedContent = content.Trim();
-            if (trimmedContent.Contains("<w:tbl"))
+            var isTable = trimmedContent.Contains("<w:tbl");
+
+            if (isTable)
             {
-                Console.WriteLine("Found table XML content:");
-                Console.WriteLine(trimmedContent);
-                return true;
+                Console.WriteLine("Found table XML content");
             }
-            return false;
+
+            return isTable;
         }
 
         private Table CreateTableFromXml(string tableXml)
         {
             try
             {
-                Console.WriteLine($"Creating table from XML content:\n{tableXml}");
-
+                Console.WriteLine($"Creating table from XML:\n{tableXml}");
                 var doc = new XmlDocument();
                 doc.LoadXml(tableXml);
 
@@ -199,18 +193,14 @@ namespace DocumentProcessor.Services
 
                 var table = new Table();
                 table.InnerXml = tableNode.InnerXml;
-
-                // Verify table structure
-                var rowCount = table.Elements<TableRow>().Count();
-                var columnCount = table.Elements<TableRow>().FirstOrDefault()?.Elements<TableCell>().Count() ?? 0;
-                Console.WriteLine($"Table created successfully with {rowCount} rows and {columnCount} columns per row");
+                Console.WriteLine("Table created successfully");
 
                 return table;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error creating table from XML: {ex.Message}");
-                Console.WriteLine($"Table XML content:\n{tableXml}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }

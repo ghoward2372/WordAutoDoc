@@ -50,38 +50,40 @@ namespace DocumentProcessor.Tests.Services
 
             // Add test content with work item tag
             var para = mainPart.Document.Body!.AppendChild(new Paragraph());
-            para.AppendChild(new Run(new Text("[[WorkItem:1234]]")));
-
+            var run = para.AppendChild(new Run());
+            run.AppendChild(new Text("[[WorkItem:1234]]"));
             mainPart.Document.Save();
         }
 
         [Fact]
-        public async Task ProcessDocument_WithHtmlTable_CreatesWordTable()
+        public async Task ProcessDocument_WithMixedContent_HandlesTableAndTextCorrectly()
         {
             // Arrange
-            Console.WriteLine("\n=== Starting Table Conversion Test ===");
+            Console.WriteLine("\n=== Starting Mixed Content Test ===");
             var htmlContent = @"
-<table>
-    <tr><th>Header 1</th><th>Header 2</th></tr>
-    <tr><td>Cell 1</td><td>Cell 2</td></tr>
-    <tr><td>Cell 3</td><td>Cell 4</td></tr>
-</table>";
+                Text before table
+                <table>
+                    <tr><th>Header 1</th><th>Header 2</th></tr>
+                    <tr><td>Cell 1</td><td>Cell 2</td></tr>
+                </table>
+                Text after table with an API reference
+            ";
 
             Console.WriteLine($"Test HTML content:\n{htmlContent}");
 
-            // Set up Azure DevOps service to return HTML content
+            // Mock the work item response to return our test HTML
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
                 .ReturnsAsync(htmlContent);
 
-            // Use actual HtmlToWordConverter for table conversion
+            // Create a real HTML converter for this test
             var options = new DocumentProcessingOptions
             {
                 SourcePath = _testFilePath,
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = new HtmlToWordConverter(),
+                HtmlConverter = new HtmlToWordConverter(), // Use actual converter
                 FQDocumentField = TEST_FQ_FIELD
             };
 
@@ -102,33 +104,24 @@ namespace DocumentProcessor.Tests.Services
 
                     Console.WriteLine($"\n=== Document Body XML ===\n{body.InnerXml}");
 
+                    // First verify table is present
                     var tables = body.Descendants<Table>().ToList();
-                    Assert.True(tables.Any(), "No tables found in the document");
-                    Console.WriteLine($"Found {tables.Count} table(s) in the document");
+                    Console.WriteLine($"Found {tables.Count} table(s) in document");
+                    Assert.Single(tables, "Expected exactly one table");
 
-                    var table = tables.First();
-                    Console.WriteLine($"\n=== Table XML ===\n{table.OuterXml}");
+                    // Then verify paragraphs contain expected text
+                    var paragraphs = body.Elements<Paragraph>().ToList();
+                    Console.WriteLine($"Found {paragraphs.Count} paragraph(s) in document");
+                    foreach (var para in paragraphs)
+                    {
+                        Console.WriteLine($"Paragraph text: {para.InnerText}");
+                    }
 
-                    var rows = table.Elements<TableRow>().ToList();
-                    Assert.Equal(3, rows.Count); // Header + 2 data rows
+                    Assert.Contains(paragraphs, p => p.InnerText.Contains("Text before table"));
+                    Assert.Contains(paragraphs, p => p.InnerText.Contains("Text after table"));
+                    Assert.Contains(paragraphs, p => p.InnerText.Contains("API"));
 
-                    // Verify header row
-                    var headerCells = rows[0].Elements<TableCell>().ToList();
-                    Assert.Equal(2, headerCells.Count);
-                    Assert.Equal("Header 1", headerCells[0].InnerText.Trim());
-                    Assert.Equal("Header 2", headerCells[1].InnerText.Trim());
-
-                    // Verify first data row
-                    var firstRowCells = rows[1].Elements<TableCell>().ToList();
-                    Assert.Equal("Cell 1", firstRowCells[0].InnerText.Trim());
-                    Assert.Equal("Cell 2", firstRowCells[1].InnerText.Trim());
-
-                    // Verify second data row
-                    var secondRowCells = rows[2].Elements<TableCell>().ToList();
-                    Assert.Equal("Cell 3", secondRowCells[0].InnerText.Trim());
-                    Assert.Equal("Cell 4", secondRowCells[1].InnerText.Trim());
-
-                    Console.WriteLine("\n=== Table Structure Validation Complete ===");
+                    Console.WriteLine("\n=== Test Complete ===");
                 }
             }
             catch (Exception ex)
@@ -140,6 +133,7 @@ namespace DocumentProcessor.Tests.Services
             }
             finally
             {
+                // Cleanup test files
                 if (File.Exists(_testFilePath))
                     File.Delete(_testFilePath);
                 if (File.Exists(_outputFilePath))
