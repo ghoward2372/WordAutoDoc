@@ -17,6 +17,7 @@ namespace DocumentProcessor.Services
     {
         private readonly DocumentProcessingOptions _options;
         private readonly Dictionary<string, ITagProcessor> _tagProcessors;
+        private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -45,33 +46,20 @@ namespace DocumentProcessor.Services
                 File.Copy(_options.SourcePath, _options.OutputPath, true);
                 Console.WriteLine("Created output document successfully");
 
-                using (WordprocessingDocument targetDoc = WordprocessingDocument.Open(_options.OutputPath, true))
+                using (var doc = WordprocessingDocument.Open(_options.OutputPath, true))
                 {
-                    var mainPart = targetDoc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
+                    var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
                     var body = mainPart.Document?.Body ?? throw new InvalidOperationException("Document body is missing");
 
                     await ProcessDocumentContentAsync(body);
                     mainPart.Document.Save();
-                    Console.WriteLine("\n=== Document Processing Completed ===");
                 }
 
-                // Verify the file exists and has content after processing
-                if (File.Exists(_options.OutputPath))
-                {
-                    var fileInfo = new FileInfo(_options.OutputPath);
-                    Console.WriteLine($"\n=== Output File Details ===");
-                    Console.WriteLine($"File path: {_options.OutputPath}");
-                    Console.WriteLine($"File size: {fileInfo.Length} bytes");
-                    Console.WriteLine($"Last modified: {fileInfo.LastWriteTime}");
-                }
-                else
-                {
-                    throw new FileNotFoundException("Output file not found after processing", _options.OutputPath);
-                }
+                Console.WriteLine("\n=== Document Processing Complete ===");
             }
             catch (Exception ex)
             {
-                Console.WriteLine("\n=== Document Processing Failed ===");
+                Console.WriteLine($"\n=== Document Processing Failed ===");
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
@@ -85,17 +73,17 @@ namespace DocumentProcessor.Services
 
             foreach (var paragraph in paragraphsToProcess)
             {
-                string text = paragraph.InnerText;
+                var text = paragraph.InnerText;
                 Console.WriteLine($"\nProcessing paragraph: {text}");
 
-                var result = await ProcessTextAsync(text);
+                var processed = await ProcessTextAsync(text);
 
-                if (result.IsTable)
+                if (processed.IsTable && processed.TableElement != null)
                 {
                     Console.WriteLine("\n=== Table Processing ===");
                     try
                     {
-                        var table = result.TableElement!;
+                        var table = processed.TableElement;
                         var rowCount = table.Elements<TableRow>().Count();
                         var columnCount = table.Elements<TableRow>().FirstOrDefault()?.Elements<TableCell>().Count() ?? 0;
 
@@ -103,32 +91,25 @@ namespace DocumentProcessor.Services
                         Console.WriteLine($"- Total rows: {rowCount}");
                         Console.WriteLine($"- Columns per row: {columnCount}");
 
-                        var tableProps = table.GetFirstChild<TableProperties>();
-                        Console.WriteLine("Table formatting:");
-                        Console.WriteLine($"- Border size: {tableProps?.TableBorders?.TopBorder?.Size ?? 0}pt");
-                        Console.WriteLine($"- Table width: {tableProps?.TableWidth?.Width ?? "auto"}");
-                        Console.WriteLine($"- Table look: {tableProps?.TableLook?.Val ?? "default"}");
-
+                        // Insert the table before the current paragraph
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
+
                         Console.WriteLine("Table successfully inserted into document");
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error during table insertion: {ex.Message}");
-                        Console.WriteLine($"Table XML structure: {result.TableElement!.OuterXml}");
                         throw;
                     }
                 }
-                else if (text != result.ProcessedText)
+                else if (text != processed.ProcessedText)
                 {
                     Console.WriteLine("Updating paragraph with processed text");
                     paragraph.RemoveAllChildren();
-                    paragraph.AppendChild(new Run(new Text(result.ProcessedText)));
+                    paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
                 }
             }
-
-            Console.WriteLine("\n=== Document Processing Complete ===");
         }
 
         private async Task<ProcessingResult> ProcessTextAsync(string text)
@@ -150,14 +131,14 @@ namespace DocumentProcessor.Services
 
                         if (IsTableXml(processedContent))
                         {
-                            Console.WriteLine("Table content detected, creating Word table...");
+                            Console.WriteLine("Converting XML to table...");
                             result.IsTable = true;
                             result.TableElement = CreateTableFromXml(processedContent);
                             return result;
                         }
 
                         text = text.Replace(match.Value, processedContent);
-                        Console.WriteLine($"Tag processed successfully");
+                        Console.WriteLine("Tag processed successfully");
                     }
                     catch (Exception ex)
                     {
@@ -173,123 +154,48 @@ namespace DocumentProcessor.Services
 
         private bool IsTableXml(string content)
         {
-            return content?.StartsWith("<w:tbl") ?? false;
-        }
+            if (string.IsNullOrEmpty(content))
+                return false;
 
+            var trimmedContent = content.Trim();
+            Console.WriteLine($"Checking if content is table XML: {trimmedContent.Substring(0, Math.Min(100, trimmedContent.Length))}...");
+            return trimmedContent.Contains("<w:tbl");
+        }
 
         private Table CreateTableFromXml(string tableXml)
         {
             try
             {
-                Console.WriteLine("\n=== Creating Word Table ===");
+                Console.WriteLine($"Creating table from XML content. Length: {tableXml.Length}");
+                Console.WriteLine($"XML Content: {tableXml}");
+
                 var table = new Table();
+                var doc = new XmlDocument();
+                doc.LoadXml(tableXml);
 
-                // Add enhanced table properties
-                var props = new TableProperties(
-                    new TableBorders(
-                        new TopBorder { Val = BorderValues.Single, Size = 12 },
-                        new BottomBorder { Val = BorderValues.Single, Size = 12 },
-                        new LeftBorder { Val = BorderValues.Single, Size = 12 },
-                        new RightBorder { Val = BorderValues.Single, Size = 12 },
-                        new InsideHorizontalBorder { Val = BorderValues.Single, Size = 6 },
-                        new InsideVerticalBorder { Val = BorderValues.Single, Size = 6 }
-                    ),
-                    new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
-                    new TableLook { Val = "04A0" }
-                );
-                table.AppendChild(props);
+                // Set up namespace manager for XPath
+                var nsmgr = new XmlNamespaceManager(doc.NameTable);
+                nsmgr.AddNamespace("w", WordMlNamespace);
 
-                Console.WriteLine("Parsing table XML content...");
-                using (var stringReader = new StringReader(tableXml))
-                using (var xmlReader = XmlReader.Create(stringReader))
+                // Find table node using namespace-aware XPath
+                var tableNode = doc.SelectSingleNode("//w:tbl", nsmgr);
+                if (tableNode == null)
                 {
-                    bool isFirstRow = true;
-                    TableRow row = null;
-
-                    while (xmlReader.Read())
-                    {
-                        if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tr")
-                        {
-                            row = new TableRow();
-
-                            if (isFirstRow)
-                            {
-                                row.AppendChild(new TableRowProperties(
-                                    new TableRowHeight { Val = 400 },
-                                    new TableHeader()
-                                ));
-                            }
-                        }
-                        else if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tc")
-                        {
-                            if (row == null)
-                                continue; // Ensure row exists before adding cells
-
-                            var cell = new TableCell();
-                            var cellProps = new TableCellProperties(
-                                new TableCellWidth { Type = TableWidthUnitValues.Auto },
-                                new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
-                            );
-
-                            if (isFirstRow)
-                            {
-                                cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
-                            }
-
-                            cell.AppendChild(cellProps);
-
-                            // Read text content properly from within the <tc> tag
-                            string cellContent = "";
-                            while (xmlReader.Read())
-                            {
-                                if (xmlReader.NodeType == XmlNodeType.Text)
-                                {
-                                    cellContent += xmlReader.Value.Trim();
-                                }
-                                else if (xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tc")
-                                {
-                                    break; // Stop reading once we reach the end of the <tc> tag
-                                }
-                            }
-
-                            Console.WriteLine($"Adding cell content: {cellContent}");
-
-                            var paragraph = new Paragraph(
-                                new ParagraphProperties(
-                                    new Justification { Val = JustificationValues.Center },
-                                    new SpacingBetweenLines { Before = "0", After = "0" }
-                                ),
-                                new Run(
-                                    isFirstRow ? new RunProperties(new Bold()) : null,
-                                    new Text(cellContent)
-                                )
-                            );
-
-                            cell.AppendChild(paragraph);
-                            row.AppendChild(cell);
-                        }
-                        else if (xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tr")
-                        {
-                            if (row != null)
-                            {
-                                table.AppendChild(row);
-                                isFirstRow = false;
-                            }
-                        }
-                    }
+                    throw new InvalidOperationException("No table found in XML content");
                 }
 
-                Console.WriteLine("Table created successfully");
+                table.InnerXml = tableNode.InnerXml;
+                var rowCount = table.Elements<TableRow>().Count();
+                Console.WriteLine($"Table created successfully with {rowCount} rows");
                 return table;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error creating table: {ex.Message}");
+                Console.WriteLine($"Error creating table from XML: {ex.Message}");
                 Console.WriteLine($"Table XML content: {tableXml}");
-                throw new Exception($"Error creating table from XML: {ex.Message}", ex);
+                throw;
             }
         }
-
 
         public string ExtractTextFromXml(string xml)
         {
@@ -304,11 +210,10 @@ namespace DocumentProcessor.Services
                 var matches = Regex.Matches(xml, @"<w:t(?:\s[^>]*)?>(.*?)</w:t>");
                 if (matches.Count > 0)
                 {
-                    // Join text elements with a single space and normalize whitespace
                     string textContent = string.Join(" ",
                         matches.Cast<Match>()
-                               .Select(m => m.Groups[1].Value.Trim())
-                               .Where(s => !string.IsNullOrWhiteSpace(s)));
+                                .Select(m => m.Groups[1].Value.Trim())
+                                .Where(s => !string.IsNullOrWhiteSpace(s)));
                     Console.WriteLine($"Extracted Word text content: {textContent}");
                     return textContent;
                 }
@@ -320,7 +225,6 @@ namespace DocumentProcessor.Services
                 {
                     previousResult = withoutTags;
                     withoutTags = Regex.Replace(previousResult, @"<[^>]+>", string.Empty);
-                    Console.WriteLine($"Cleaning pass result: {withoutTags}");
                 } while (withoutTags != previousResult);
 
                 // Clean up the result

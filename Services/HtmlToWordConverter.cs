@@ -5,12 +5,13 @@ using System.Net;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Linq;
-using System.Xml;
 
 namespace DocumentProcessor.Services
 {
     public class HtmlToWordConverter : IHtmlToWordConverter
     {
+        private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
         public string ConvertHtmlToWordFormat(string html)
         {
             if (string.IsNullOrEmpty(html))
@@ -18,11 +19,10 @@ namespace DocumentProcessor.Services
 
             Console.WriteLine($"Converting HTML content: {html}");
 
-            // Skip processing if this is our special AcronymTable tag
             if (html.Contains("[[AcronymTable"))
                 return html;
 
-            // First check for tables and convert them
+            // First check for tables
             var tableMatches = Regex.Matches(html, @"<table[^>]*>(.*?)</table>", RegexOptions.Singleline);
             foreach (Match tableMatch in tableMatches)
             {
@@ -33,30 +33,28 @@ namespace DocumentProcessor.Services
                     var wordTable = CreateTable(tableData);
                     var tableXml = wordTable.OuterXml;
                     Console.WriteLine($"Created Word table XML: {tableXml}");
-                    // Replace the HTML table with Word table XML
                     html = html.Replace(tableMatch.Value, tableXml);
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error converting HTML table: {ex.Message}");
-                    // Keep original table text if conversion fails
                     continue;
                 }
             }
 
-            // Then handle other HTML elements
+            // Handle other HTML elements
             html = Regex.Replace(html, @"<br\s*/>", "\n");
-            html = Regex.Replace(html, @"<p.*?>", "");
+            html = Regex.Replace(html, @"<p.*?>", string.Empty);
             html = Regex.Replace(html, @"</p>", "\n");
-            html = Regex.Replace(html, @"<div.*?>", "");
+            html = Regex.Replace(html, @"<div.*?>", string.Empty);
             html = Regex.Replace(html, @"</div>", "\n");
-            html = Regex.Replace(html, @"<span.*?>", "");
-            html = Regex.Replace(html, @"</span>", "");
+            html = Regex.Replace(html, @"<span.*?>", string.Empty);
+            html = Regex.Replace(html, @"</span>", string.Empty);
 
             // Convert HTML entities
             html = WebUtility.HtmlDecode(html);
 
-            // Remove any remaining HTML tags except our Word table XML
+            // Remove any remaining HTML tags except Word XML
             html = Regex.Replace(html, @"<(?!w:)[^>]+>", string.Empty);
 
             Console.WriteLine($"Converted content: {html}");
@@ -83,7 +81,7 @@ namespace DocumentProcessor.Services
                     cellContent = Regex.Replace(cellContent, @"<[^>]+>", string.Empty); // Remove any nested HTML
                     cellContent = WebUtility.HtmlDecode(cellContent).Trim();
                     cells.Add(cellContent);
-                    Console.WriteLine($"Extracted cell content: {cellContent}");
+                    Console.WriteLine($"Extracted cell content: [{cellContent}]");
                 }
 
                 if (cells.Any())
@@ -93,19 +91,24 @@ namespace DocumentProcessor.Services
                 }
             }
 
+            if (!rows.Any())
+            {
+                throw new InvalidOperationException("No valid data found in table");
+            }
+
             return rows.ToArray();
         }
 
         public Table CreateTable(string[][] data)
         {
-            if (data == null || data.Length == 0)
+            if (data == null || data.Length == 0 || data[0].Length == 0)
                 throw new ArgumentException("Table data cannot be null or empty");
 
             Console.WriteLine($"Creating table with {data.Length} rows");
             var table = new Table();
 
-            // Table properties
-            var tableProperties = new TableProperties(
+            // Add enhanced table properties
+            var tableProps = new TableProperties(
                 new TableBorders(
                     new TopBorder { Val = BorderValues.Single, Size = 12 },
                     new BottomBorder { Val = BorderValues.Single, Size = 12 },
@@ -114,70 +117,62 @@ namespace DocumentProcessor.Services
                     new InsideHorizontalBorder { Val = BorderValues.Single, Size = 6 },
                     new InsideVerticalBorder { Val = BorderValues.Single, Size = 6 }
                 ),
-                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
-                new TableLook { Val = "04A0" }
+                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" }
             );
-            table.AppendChild(tableProperties);
+            table.AppendChild(tableProps);
 
-            // Define TableGrid columns based on the first row
-            int columnCount = data[0].Length;
+            // Define grid columns
             var grid = new TableGrid();
-            for (int i = 0; i < columnCount; i++)
+            for (int i = 0; i < data[0].Length; i++)
             {
                 grid.AppendChild(new GridColumn());
             }
             table.AppendChild(grid);
 
-            // Iterate through rows
-            for (int i = 0; i < data.Length; i++)
+            // Create rows
+            for (int rowIndex = 0; rowIndex < data.Length; rowIndex++)
             {
-                var rowData = data[i];
                 var row = new TableRow();
+                var rowData = data[rowIndex];
 
-                if (i == 0) // Header row
+                // Add header properties if this is the first row
+                if (rowIndex == 0)
                 {
-                    row.AppendChild(new TableRowProperties(
-                        new TableRowHeight { Val = 400 },
-                        new TableHeader()
-                    ));
+                    row.AppendChild(new TableRowProperties(new TableRowHeight { Val = 400 }));
                 }
 
-                // Ensure correct number of cells in each row
-                for (int j = 0; j < columnCount; j++)
+                // Create cells
+                for (int colIndex = 0; colIndex < data[0].Length; colIndex++)
                 {
                     var cell = new TableCell();
-                    var cellProperties = new TableCellProperties(
+                    var cellProps = new TableCellProperties(
                         new TableCellWidth { Type = TableWidthUnitValues.Auto },
                         new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
                     );
 
-                    if (i == 0) // Header row styling
+                    if (rowIndex == 0) // Header row styling
                     {
-                        cellProperties.AppendChild(new Shading { Fill = "EEEEEE" });
+                        cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
                     }
 
-                    cell.AppendChild(cellProperties);
+                    cell.AppendChild(cellProps);
 
-                    // Create paragraph with proper formatting
                     var paragraph = new Paragraph(
-                        new ParagraphProperties(
-                            new Justification { Val = JustificationValues.Center },
-                            new SpacingBetweenLines { Before = "0", After = "0" }
-                        ),
+                        new ParagraphProperties(new Justification { Val = JustificationValues.Center }),
                         new Run(
-                            i == 0 ? new RunProperties(new Bold()) : null,
-                            new Text(j < rowData.Length ? rowData[j] : string.Empty)
+                            rowIndex == 0 ? new RunProperties(new Bold()) : null,
+                            new Text(colIndex < rowData.Length ? rowData[colIndex] : string.Empty)
                         )
                     );
 
                     cell.AppendChild(paragraph);
                     row.AppendChild(cell);
-                    Console.WriteLine($"Added cell with content: {(j < rowData.Length ? rowData[j] : string.Empty)}");
                 }
 
                 table.AppendChild(row);
             }
 
+            Console.WriteLine($"Table created with {data.Length} rows and {data[0].Length} columns");
             return table;
         }
     }

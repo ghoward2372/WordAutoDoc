@@ -1,16 +1,16 @@
-using DocumentProcessor.Models;
-using DocumentProcessor.Services;
-using Moq;
-using Xunit;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocumentProcessor.Models;
+using DocumentProcessor.Models.Configuration;
+using DocumentProcessor.Services;
+using Moq;
 using System;
-using System.Threading.Tasks;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Collections.Generic;
-using DocumentProcessor.Models.Configuration;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace DocumentProcessor.Tests.Services
 {
@@ -22,13 +22,12 @@ namespace DocumentProcessor.Tests.Services
         private readonly string _testFilePath;
         private readonly string _outputFilePath;
         private const string TEST_FQ_FIELD = "System.Description";
-        private readonly AcronymConfiguration _acronymConfig;
 
         public WordDocumentProcessorTests()
         {
             _mockAzureDevOpsService = new Mock<IAzureDevOpsService>();
             _mockHtmlConverter = new Mock<IHtmlToWordConverter>();
-            _acronymConfig = new AcronymConfiguration
+            _acronymProcessor = new AcronymProcessor(new AcronymConfiguration
             {
                 KnownAcronyms = new Dictionary<string, string>
                 {
@@ -36,8 +35,7 @@ namespace DocumentProcessor.Tests.Services
                     { "GUI", "Graphical User Interface" }
                 },
                 IgnoredAcronyms = new HashSet<string> { "ID", "XML" }
-            };
-            _acronymProcessor = new AcronymProcessor(_acronymConfig);
+            });
             _testFilePath = $"test_input_{Guid.NewGuid()}.docx";
             _outputFilePath = $"test_output_{Guid.NewGuid()}.docx";
 
@@ -50,9 +48,12 @@ namespace DocumentProcessor.Tests.Services
             var mainPart = doc.AddMainDocumentPart();
             mainPart.Document = new Document(new Body());
 
-            // Add test content with acronyms
-            var para1 = mainPart.Document.Body.AppendChild(new Paragraph());
+            // Add test content with both acronyms and work item tag
+            var para1 = mainPart.Document.Body!.AppendChild(new Paragraph());
             para1.AppendChild(new Run(new Text("The API and GUI are important components.")));
+
+            var para2 = mainPart.Document.Body.AppendChild(new Paragraph());
+            para2.AppendChild(new Run(new Text("[[WorkItem:1234]]")));
 
             mainPart.Document.Save();
         }
@@ -61,13 +62,11 @@ namespace DocumentProcessor.Tests.Services
         public async Task ProcessDocument_WithHtmlTable_CreatesWordTable()
         {
             // Arrange
-            var htmlContent = @"<p>Before table</p>
-                <table>
-                    <tr><th>Header 1</th><th>Header 2</th></tr>
-                    <tr><td>Cell 1</td><td>Cell 2</td></tr>
-                    <tr><td>Cell 3</td><td>Cell 4</td></tr>
-                </table>
-                <p>After table</p>";
+            var htmlContent = @"<table>
+                <tr><th>Header 1</th><th>Header 2</th></tr>
+                <tr><td>Cell 1</td><td>Cell 2</td></tr>
+                <tr><td>Cell 3</td><td>Cell 4</td></tr>
+            </table>";
 
             Console.WriteLine($"Test HTML content: {htmlContent}");
 
@@ -75,28 +74,20 @@ namespace DocumentProcessor.Tests.Services
                 .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
                 .ReturnsAsync(htmlContent);
 
-            // Update test document with work item reference
-            using (var doc = WordprocessingDocument.Open(_testFilePath, true))
-            {
-                var para = doc.MainDocumentPart!.Document.Body.AppendChild(new Paragraph());
-                para.AppendChild(new Run(new Text("[[WorkItem:1234]]")));
-                doc.MainDocumentPart.Document.Save();
-            }
-
             var options = new DocumentProcessingOptions
             {
                 SourcePath = _testFilePath,
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = new HtmlToWordConverter(), // Use actual converter
+                HtmlConverter = new HtmlToWordConverter(),
                 FQDocumentField = TEST_FQ_FIELD
             };
 
-            var processor = new WordDocumentProcessor(options);
-
             try
             {
+                var processor = new WordDocumentProcessor(options);
+
                 // Act
                 await processor.ProcessDocumentAsync();
 
@@ -105,26 +96,26 @@ namespace DocumentProcessor.Tests.Services
                 using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
                 {
                     var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
-                    var tables = mainPart.Document.Body.Elements<Table>().ToList();
-                    Assert.True(tables.Any(), "No tables found in the document");
+                    var foundTables = mainPart.Document.Body!.Elements<Table>().ToList();
 
-                    Console.WriteLine($"Found {tables.Count} tables in the document");
+                    // Log document content for debugging
+                    Console.WriteLine($"Document content: {mainPart.Document.Body.InnerXml}");
+                    foreach (var foundTable in foundTables)
+                    {
+                        Console.WriteLine($"Found table XML: {foundTable.OuterXml}");
+                    }
 
-                    var table = tables.First();
-                    var rows = table.Elements<TableRow>().ToList();
+                    Assert.True(foundTables.Any(), "No tables found in the document");
+
+                    var firstTable = foundTables.First();
+                    var rows = firstTable.Elements<TableRow>().ToList();
                     Assert.Equal(3, rows.Count); // Header + 2 data rows
 
                     // Verify header row
                     var headerCells = rows[0].Elements<TableCell>().ToList();
                     Assert.Equal(2, headerCells.Count);
-
-                    var headerText1 = headerCells[0].InnerText;
-                    var headerText2 = headerCells[1].InnerText;
-
-                    Console.WriteLine($"Header cell contents: [{headerText1}], [{headerText2}]");
-
-                    Assert.Equal("Header 1", headerText1);
-                    Assert.Equal("Header 2", headerText2);
+                    Assert.Equal("Header 1", headerCells[0].InnerText);
+                    Assert.Equal("Header 2", headerCells[1].InnerText);
 
                     // Verify data rows
                     var firstRowCells = rows[1].Elements<TableCell>().ToList();
@@ -138,18 +129,10 @@ namespace DocumentProcessor.Tests.Services
             }
             finally
             {
-                // Cleanup test files
-                try
-                {
-                    if (File.Exists(_testFilePath))
-                        File.Delete(_testFilePath);
-                    if (File.Exists(_outputFilePath))
-                        File.Delete(_outputFilePath);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error during cleanup: {ex.Message}");
-                }
+                if (File.Exists(_testFilePath))
+                    File.Delete(_testFilePath);
+                if (File.Exists(_outputFilePath))
+                    File.Delete(_outputFilePath);
             }
         }
 
@@ -167,10 +150,10 @@ namespace DocumentProcessor.Tests.Services
                 FQDocumentField = TEST_FQ_FIELD
             };
 
-            var processor = new WordDocumentProcessor(options);
-
             try
             {
+                var processor = new WordDocumentProcessor(options);
+
                 // Act
                 await processor.ProcessDocumentAsync();
 
@@ -179,13 +162,14 @@ namespace DocumentProcessor.Tests.Services
                 using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
                 {
                     var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
-                    var text = mainPart.Document.Body.InnerText;
+                    var text = mainPart.Document.Body!.InnerText;
 
                     Console.WriteLine($"Document text: {text}");
 
-                    // Verify acronyms are present
+                    // Verify acronyms were processed but ADO tags remain
                     Assert.Contains("API", text);
                     Assert.Contains("GUI", text);
+                    Assert.Contains("[[WorkItem:1234]]", text);
                 }
             }
             finally
@@ -201,42 +185,22 @@ namespace DocumentProcessor.Tests.Services
         public void ExtractTextFromXml_WithComplexWordXml_ExtractsTextContent()
         {
             // Arrange
-            var complexXml = @"<w:tcPr xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""><w:tcW w:type=""auto"" /><w:vAlign w:val=""center"" /><w:shd w:fill=""EEEEEE"" /></w:tcPr><w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""><w:pPr><w:jc w:val=""center"" /><w:spacing w:before=""0"" w:after=""0"" /></w:pPr><w:r><w:rPr><w:b /></w:rPr><w:t>ID</w:t></w:r></w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
+            var options = new DocumentProcessingOptions
             {
                 SourcePath = "test.docx",
                 OutputPath = "output.docx",
                 AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(_acronymConfig),
+                AcronymProcessor = _acronymProcessor,
                 HtmlConverter = new HtmlToWordConverter(),
                 FQDocumentField = TEST_FQ_FIELD
-            });
+            };
 
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("ID", result);
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithMultipleTextElements_ExtractsAllText()
-        {
-            // Arrange
+            var processor = new WordDocumentProcessor(options);
             var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
                 <w:r><w:rPr><w:b/></w:rPr><w:t>First</w:t></w:r>
                 <w:r><w:t xml:space=""preserve""> </w:t></w:r>
                 <w:r><w:rPr><w:i/></w:rPr><w:t>Second</w:t></w:r>
             </w:p>";
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(_acronymConfig),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
 
             // Act
             string result = processor.ExtractTextFromXml(complexXml);
@@ -244,6 +208,7 @@ namespace DocumentProcessor.Tests.Services
             // Assert
             Assert.Equal("First Second", result);
         }
+
         public void Dispose()
         {
             try

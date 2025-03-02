@@ -19,27 +19,15 @@ namespace DocumentProcessor.Models.TagProcessors
 
         public Task<string> ProcessTagAsync(string tagContent)
         {
-            var options = new DocumentProcessingOptions
-            {
-                SourcePath = string.Empty,
-                OutputPath = string.Empty,
-                AzureDevOpsService = null,
-                AcronymProcessor = new AcronymProcessor(new Models.Configuration.AcronymConfiguration 
-                { 
-                    KnownAcronyms = new Dictionary<string, string>(),
-                    IgnoredAcronyms = new HashSet<string>() 
-                }),
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = string.Empty
-            };
-
-            return ProcessTagAsync(tagContent, options);
+            return ProcessTagAsync(tagContent, null);
         }
 
-        public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions options)
+        public async Task<string> ProcessTagAsync(string tagContent, DocumentProcessingOptions? options)
         {
             try
             {
+                Console.WriteLine($"Processing query tag: {tagContent}");
+
                 if (!Guid.TryParse(tagContent, out var queryId))
                 {
                     return "Invalid query ID format. Expected a GUID.";
@@ -64,6 +52,8 @@ namespace DocumentProcessor.Models.TagProcessors
                 if (!workItems.Any())
                     return "No work items found.";
 
+                Console.WriteLine($"Query returned {workItems.Count()} work items");
+
                 // Create table data - header row first
                 var tableData = new List<string[]>
                 {
@@ -78,6 +68,12 @@ namespace DocumentProcessor.Models.TagProcessors
                         .Select(col => GetFieldValue(workItem.Fields, col.ReferenceName))
                         .ToArray();
                     tableData.Add(row);
+                }
+
+                Console.WriteLine("Creating table from work item data...");
+                foreach (var row in tableData)
+                {
+                    Console.WriteLine($"Row: {string.Join(" | ", row)}");
                 }
 
                 var table = _htmlConverter.CreateTable(tableData.ToArray());
