@@ -1,12 +1,13 @@
-using System;
-using System.Threading.Tasks;
 using DocumentProcessor.Models;
 using DocumentProcessor.Services;
 using Moq;
 using Xunit;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
-using System.IO;
 using DocumentFormat.OpenXml.Wordprocessing;
+using System;
+using System.Threading.Tasks;
+using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using DocumentProcessor.Models.Configuration;
@@ -40,8 +41,9 @@ namespace DocumentProcessor.Tests.Services
             _testFilePath = "test_input.docx";
             _outputFilePath = "test_output.docx";
 
-            // Create a test document
-            TestDocumentGenerator.CreateTestDocument(_testFilePath);
+            // Clean up any existing test files
+            if (File.Exists(_testFilePath)) File.Delete(_testFilePath);
+            if (File.Exists(_outputFilePath)) File.Delete(_outputFilePath);
         }
 
         [Fact]
@@ -126,16 +128,32 @@ namespace DocumentProcessor.Tests.Services
         }
 
         [Fact]
-        public async Task ProcessDocument_WithTableTag_CreatesWordTable()
+        public async Task ProcessDocument_WithHtmlTable_CreatesWordTable()
         {
             // Arrange
-            var tableXml = @"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:tr><w:tc><w:p><w:r><w:t>Test</w:t></w:r></w:p></w:tc></w:tr>
-            </w:tbl>";
+            var htmlContent = @"<p>Before table</p>
+                <table>
+                    <tr><th>Header 1</th><th>Header 2</th></tr>
+                    <tr><td>Cell 1</td><td>Cell 2</td></tr>
+                    <tr><td>Cell 3</td><td>Cell 4</td></tr>
+                </table>
+                <p>After table</p>";
 
-            _mockHtmlConverter
-                .Setup(x => x.ConvertHtmlToWordFormat(It.IsAny<string>()))
-                .Returns(tableXml);
+            Console.WriteLine($"Test HTML content: {htmlContent}");
+
+            _mockAzureDevOpsService
+                .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
+                .ReturnsAsync(htmlContent);
+
+            // Create test document with just a work item reference
+            using (var doc = WordprocessingDocument.Create(_testFilePath, WordprocessingDocumentType.Document))
+            {
+                var mainPart = doc.AddMainDocumentPart();
+                mainPart.Document = new Document(new Body());
+                var para = mainPart.Document.Body.AppendChild(new Paragraph());
+                para.AppendChild(new Run(new Text("[[WorkItem:1234]]")));
+                mainPart.Document.Save();
+            }
 
             var options = new DocumentProcessingOptions
             {
@@ -143,7 +161,7 @@ namespace DocumentProcessor.Tests.Services
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = _mockHtmlConverter.Object,
+                HtmlConverter = new HtmlToWordConverter(), // Use actual converter
                 FQDocumentField = TEST_FQ_FIELD
             };
 
@@ -156,11 +174,39 @@ namespace DocumentProcessor.Tests.Services
             Assert.True(File.Exists(_outputFilePath));
             using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
             {
-                var mainPart = doc.MainDocumentPart;
-                var tables = mainPart.Document.Body.Elements<Table>();
-                Assert.True(tables.Any());
+                var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
+                var tables = mainPart.Document.Body.Elements<Table>().ToList();
+                Assert.True(tables.Any(), "No tables found in the document");
+
+                Console.WriteLine($"Found {tables.Count} tables in the document");
+
+                var table = tables.First();
+                var rows = table.Elements<TableRow>().ToList();
+                Assert.Equal(3, rows.Count); // Header + 2 data rows
+
+                // Verify header row
+                var headerCells = rows[0].Elements<TableCell>().ToList();
+                Assert.Equal(2, headerCells.Count);
+
+                var headerText1 = headerCells[0].InnerText;
+                var headerText2 = headerCells[1].InnerText;
+
+                Console.WriteLine($"Header cell contents: [{headerText1}], [{headerText2}]");
+
+                Assert.Equal("Header 1", headerText1);
+                Assert.Equal("Header 2", headerText2);
+
+                // Verify data rows
+                var firstRowCells = rows[1].Elements<TableCell>().ToList();
+                Assert.Equal("Cell 1", firstRowCells[0].InnerText);
+                Assert.Equal("Cell 2", firstRowCells[1].InnerText);
+
+                var secondRowCells = rows[2].Elements<TableCell>().ToList();
+                Assert.Equal("Cell 3", secondRowCells[0].InnerText);
+                Assert.Equal("Cell 4", secondRowCells[1].InnerText);
             }
         }
+
         [Fact]
         public void ExtractTextFromXml_WithComplexWordXml_ExtractsTextContent()
         {

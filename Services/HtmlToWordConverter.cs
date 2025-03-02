@@ -3,6 +3,9 @@ using DocumentFormat.OpenXml.Wordprocessing;
 using System;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Linq;
+using System.Xml;
 
 namespace DocumentProcessor.Services
 {
@@ -13,7 +16,30 @@ namespace DocumentProcessor.Services
             if (string.IsNullOrEmpty(html))
                 return string.Empty;
 
-            // Remove HTML tags and convert common elements
+            // Skip processing if this is our special AcronymTable tag
+            if (html.Contains("[[AcronymTable"))
+                return html;
+
+            // First check for tables and convert them
+            var tableMatches = Regex.Matches(html, @"<table[^>]*>(.*?)</table>", RegexOptions.Singleline);
+            foreach (Match tableMatch in tableMatches)
+            {
+                try
+                {
+                    var tableData = ExtractTableData(tableMatch.Value);
+                    var wordTable = CreateTable(tableData);
+                    // Replace the HTML table with Word table XML
+                    html = html.Replace(tableMatch.Value, wordTable.OuterXml);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error converting HTML table: {ex.Message}");
+                    // Keep original table text if conversion fails
+                    continue;
+                }
+            }
+
+            // Then handle other HTML elements
             html = Regex.Replace(html, @"<br\s*/>", "\n");
             html = Regex.Replace(html, @"<p.*?>", "");
             html = Regex.Replace(html, @"</p>", "\n");
@@ -25,12 +51,39 @@ namespace DocumentProcessor.Services
             // Convert HTML entities
             html = WebUtility.HtmlDecode(html);
 
-            // Remove any remaining HTML tags
-            html = Regex.Replace(html, @"<[^>]+>", string.Empty);
+            // Remove any remaining HTML tags except our Word table XML
+            html = Regex.Replace(html, @"<(?!w:)[^>]+>", string.Empty);
 
             return html.Trim();
         }
 
+        private string[][] ExtractTableData(string tableHtml)
+        {
+            var rows = new List<string[]>();
+
+            // Extract rows
+            var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline);
+            foreach (Match rowMatch in rowMatches)
+            {
+                var cells = new List<string>();
+
+                // Extract cells (both th and td)
+                var cellMatches = Regex.Matches(rowMatch.Value, @"<(td|th)[^>]*>(.*?)</(?:td|th)>", RegexOptions.Singleline);
+                foreach (Match cellMatch in cellMatches)
+                {
+                    // Clean cell content
+                    var cellContent = cellMatch.Groups[2].Value;
+                    cellContent = Regex.Replace(cellContent, @"<[^>]+>", string.Empty); // Remove any nested HTML
+                    cellContent = WebUtility.HtmlDecode(cellContent).Trim();
+                    cells.Add(cellContent);
+                }
+
+                if (cells.Any())
+                    rows.Add(cells.ToArray());
+            }
+
+            return rows.ToArray();
+        }
 
         public Table CreateTable(string[][] data)
         {
@@ -81,7 +134,6 @@ namespace DocumentProcessor.Services
                     if (i == 0) // Header row styling
                     {
                         cellProperties.AppendChild(new Shading { Fill = "EEEEEE" });
-                        cell.AppendChild(new TableRowProperties(new TableHeader())); // Ensure it's a header
                     }
 
                     cell.AppendChild(cellProperties);
@@ -95,8 +147,8 @@ namespace DocumentProcessor.Services
                         new Run(
                             new OpenXmlElement[]
                             {
-                        (i == 0) ? new RunProperties(new Bold()) : new RunProperties(),
-                        new Text(j < rowData.Length ? rowData[j] : string.Empty) // Ensure no out-of-bounds error
+                                (i == 0) ? new RunProperties(new Bold()) : new RunProperties(),
+                                new Text(j < rowData.Length ? rowData[j] : string.Empty)
                             }
                         )
                     );
@@ -110,6 +162,5 @@ namespace DocumentProcessor.Services
 
             return table;
         }
-
     }
 }
