@@ -1,10 +1,10 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
 using System;
-using System.Net;
-using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Text.RegularExpressions;
 
 namespace DocumentProcessor.Services
 {
@@ -31,9 +31,17 @@ namespace DocumentProcessor.Services
                     Console.WriteLine($"Found table match: {tableMatch.Value}");
                     var tableData = ExtractTableData(tableMatch.Value);
                     var wordTable = CreateTable(tableData);
+
+                    // Ensure proper table XML structure with namespace
                     var tableXml = wordTable.OuterXml;
+                    if (!tableXml.Contains("xmlns:w="))
+                    {
+                        tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                    }
+
                     Console.WriteLine($"Created Word table XML: {tableXml}");
-                    html = html.Replace(tableMatch.Value, tableXml);
+                    // Replace HTML table with Word table XML and ensure proper document structure
+                    html = html.Replace(tableMatch.Value, $"<w:p/>{tableXml}<w:p/>");
                 }
                 catch (Exception ex)
                 {
@@ -64,7 +72,6 @@ namespace DocumentProcessor.Services
         private string[][] ExtractTableData(string tableHtml)
         {
             var rows = new List<string[]>();
-            Console.WriteLine("Extracting table data from HTML...");
 
             // Extract rows
             var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline);
@@ -76,18 +83,15 @@ namespace DocumentProcessor.Services
                 var cellMatches = Regex.Matches(rowMatch.Value, @"<(td|th)[^>]*>(.*?)</(?:td|th)>", RegexOptions.Singleline);
                 foreach (Match cellMatch in cellMatches)
                 {
-                    // Clean cell content
                     var cellContent = cellMatch.Groups[2].Value;
-                    cellContent = Regex.Replace(cellContent, @"<[^>]+>", string.Empty); // Remove any nested HTML
+                    cellContent = Regex.Replace(cellContent, @"<[^>]+>", string.Empty);
                     cellContent = WebUtility.HtmlDecode(cellContent).Trim();
                     cells.Add(cellContent);
-                    Console.WriteLine($"Extracted cell content: [{cellContent}]");
                 }
 
                 if (cells.Any())
                 {
                     rows.Add(cells.ToArray());
-                    Console.WriteLine($"Added row with {cells.Count} cells");
                 }
             }
 
@@ -107,7 +111,7 @@ namespace DocumentProcessor.Services
             Console.WriteLine($"Creating table with {data.Length} rows");
             var table = new Table();
 
-            // Add enhanced table properties
+            // Add table properties
             var tableProps = new TableProperties(
                 new TableBorders(
                     new TopBorder { Val = BorderValues.Single, Size = 12 },
@@ -121,7 +125,7 @@ namespace DocumentProcessor.Services
             );
             table.AppendChild(tableProps);
 
-            // Define grid columns
+            // Create grid columns
             var grid = new TableGrid();
             for (int i = 0; i < data[0].Length; i++)
             {
@@ -135,7 +139,7 @@ namespace DocumentProcessor.Services
                 var row = new TableRow();
                 var rowData = data[rowIndex];
 
-                // Add header properties if this is the first row
+                // Special formatting for header row
                 if (rowIndex == 0)
                 {
                     row.AppendChild(new TableRowProperties(new TableRowHeight { Val = 400 }));
@@ -150,19 +154,26 @@ namespace DocumentProcessor.Services
                         new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
                     );
 
-                    if (rowIndex == 0) // Header row styling
+                    // Add header row styling
+                    if (rowIndex == 0)
                     {
                         cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
                     }
-
                     cell.AppendChild(cellProps);
+
+                    // Create paragraph with run and text
+                    var text = colIndex < rowData.Length ? rowData[colIndex] : string.Empty;
+                    var run = new Run();
+
+                    if (rowIndex == 0)
+                    {
+                        run.AppendChild(new RunProperties(new Bold()));
+                    }
+                    run.AppendChild(new Text(text));
 
                     var paragraph = new Paragraph(
                         new ParagraphProperties(new Justification { Val = JustificationValues.Center }),
-                        new Run(
-                            rowIndex == 0 ? new RunProperties(new Bold()) : null,
-                            new Text(colIndex < rowData.Length ? rowData[colIndex] : string.Empty)
-                        )
+                        run
                     );
 
                     cell.AppendChild(paragraph);
@@ -172,7 +183,6 @@ namespace DocumentProcessor.Services
                 table.AppendChild(row);
             }
 
-            Console.WriteLine($"Table created with {data.Length} rows and {data[0].Length} columns");
             return table;
         }
     }

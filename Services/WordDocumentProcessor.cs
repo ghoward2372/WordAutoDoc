@@ -39,7 +39,7 @@ namespace DocumentProcessor.Services
         {
             try
             {
-                Console.WriteLine("\n=== Starting Document Processing ===");
+                Console.WriteLine($"\n=== Starting Document Processing ===");
                 Console.WriteLine($"Source document: {_options.SourcePath}");
                 Console.WriteLine($"Output document: {_options.OutputPath}");
 
@@ -84,14 +84,17 @@ namespace DocumentProcessor.Services
                     try
                     {
                         var table = processed.TableElement;
-                        var rowCount = table.Elements<TableRow>().Count();
-                        var columnCount = table.Elements<TableRow>().FirstOrDefault()?.Elements<TableCell>().Count() ?? 0;
+                        Console.WriteLine($"Table XML before insertion: {table.OuterXml}");
 
-                        Console.WriteLine($"Table structure details:");
-                        Console.WriteLine($"- Total rows: {rowCount}");
-                        Console.WriteLine($"- Columns per row: {columnCount}");
+                        // Add namespace to table if missing
+                        if (!table.OuterXml.Contains("xmlns:w="))
+                        {
+                            var newTable = new Table();
+                            newTable.InnerXml = table.OuterXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                            table = newTable;
+                        }
 
-                        // Insert the table before the current paragraph
+                        // Insert table and remove the original paragraph
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
 
@@ -158,7 +161,6 @@ namespace DocumentProcessor.Services
                 return false;
 
             var trimmedContent = content.Trim();
-            Console.WriteLine($"Checking if content is table XML: {trimmedContent.Substring(0, Math.Min(100, trimmedContent.Length))}...");
             return trimmedContent.Contains("<w:tbl");
         }
 
@@ -166,10 +168,8 @@ namespace DocumentProcessor.Services
         {
             try
             {
-                Console.WriteLine($"Creating table from XML content. Length: {tableXml.Length}");
-                Console.WriteLine($"XML Content: {tableXml}");
+                Console.WriteLine($"Creating table from XML content: {tableXml}");
 
-                var table = new Table();
                 var doc = new XmlDocument();
                 doc.LoadXml(tableXml);
 
@@ -184,9 +184,13 @@ namespace DocumentProcessor.Services
                     throw new InvalidOperationException("No table found in XML content");
                 }
 
+                var table = new Table();
                 table.InnerXml = tableNode.InnerXml;
+
+                // Verify table structure
                 var rowCount = table.Elements<TableRow>().Count();
                 Console.WriteLine($"Table created successfully with {rowCount} rows");
+
                 return table;
             }
             catch (Exception ex)
@@ -206,7 +210,7 @@ namespace DocumentProcessor.Services
 
                 Console.WriteLine($"Processing XML content: {xml}");
 
-                // First pass: Extract text specifically from Word text tags
+                // First pass: Extract text from Word text tags
                 var matches = Regex.Matches(xml, @"<w:t(?:\s[^>]*)?>(.*?)</w:t>");
                 if (matches.Count > 0)
                 {

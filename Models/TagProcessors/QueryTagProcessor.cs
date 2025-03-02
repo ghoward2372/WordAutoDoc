@@ -10,6 +10,7 @@ namespace DocumentProcessor.Models.TagProcessors
     {
         private readonly IAzureDevOpsService _azureDevOpsService;
         private readonly IHtmlToWordConverter _htmlConverter;
+        private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
         public QueryTagProcessor(IAzureDevOpsService azureDevOpsService, IHtmlToWordConverter htmlConverter)
         {
@@ -77,7 +78,16 @@ namespace DocumentProcessor.Models.TagProcessors
                 }
 
                 var table = _htmlConverter.CreateTable(tableData.ToArray());
-                return table.OuterXml;
+                var tableXml = table.OuterXml;
+
+                // Ensure proper table XML structure with namespace
+                if (!tableXml.Contains("xmlns:w="))
+                {
+                    tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                }
+
+                Console.WriteLine($"Generated table XML: {tableXml}");
+                return tableXml;
             }
             catch (Exception ex)
             {
