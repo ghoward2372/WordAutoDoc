@@ -36,37 +36,44 @@ namespace DocumentProcessor.Models.TagProcessors
                 if (string.IsNullOrEmpty(documentText))
                     return string.Empty;
 
-                Console.WriteLine($"Retrieved work item content: {documentText}");
+                Console.WriteLine($"\n=== Processing Work Item {workItemId} ===");
+                Console.WriteLine($"Retrieved content:\n{documentText}");
 
                 // Check if content contains tables
-                if (documentText.Contains("<table"))
+                if (documentText.Contains("<table", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Work item content contains tables, converting to Word format...");
+                    Console.WriteLine("Found table in work item content, converting to Word format...");
                     var convertedContent = _htmlConverter.ConvertHtmlToWordFormat(documentText);
 
-                    // Log the converted content for debugging
-                    Console.WriteLine($"Converted content from HTML converter: {convertedContent}");
+                    Console.WriteLine($"Converted content from HTML converter:\n{convertedContent}");
 
-                    // Ensure proper XML structure for tables
+                    // Check if the converted content contains a table
                     if (convertedContent.Contains("<w:tbl"))
                     {
+                        // Ensure proper XML structure for tables
                         if (!convertedContent.Contains("xmlns:w="))
                         {
                             convertedContent = convertedContent.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                         }
-                        Console.WriteLine($"Final table XML with namespace: {convertedContent}");
+
+                        Console.WriteLine($"Final table XML with namespace:\n{convertedContent}");
                         return convertedContent;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Warning: HTML table was found but no Word table was generated");
                     }
                 }
 
                 // For non-table content, convert HTML to Word format
                 var processedContent = _htmlConverter.ConvertHtmlToWordFormat(documentText);
-                Console.WriteLine($"Processed non-table content: {processedContent}");
+                Console.WriteLine($"Processed non-table content:\n{processedContent}");
                 return processedContent;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing work item {tagContent}: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }

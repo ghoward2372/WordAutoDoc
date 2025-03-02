@@ -36,8 +36,8 @@ namespace DocumentProcessor.Tests.Services
                 },
                 IgnoredAcronyms = new HashSet<string> { "ID", "XML" }
             });
-            _testFilePath = $"test_input_{Guid.NewGuid()}.docx";
-            _outputFilePath = $"test_output_{Guid.NewGuid()}.docx";
+            _testFilePath = Path.Combine(Path.GetTempPath(), $"test_input_{Guid.NewGuid()}.docx");
+            _outputFilePath = Path.Combine(Path.GetTempPath(), $"test_output_{Guid.NewGuid()}.docx");
 
             CreateTestDocument();
         }
@@ -59,6 +59,7 @@ namespace DocumentProcessor.Tests.Services
         public async Task ProcessDocument_WithHtmlTable_CreatesWordTable()
         {
             // Arrange
+            Console.WriteLine("\n=== Starting Table Conversion Test ===");
             var htmlContent = @"
 <table>
     <tr><th>Header 1</th><th>Header 2</th></tr>
@@ -68,44 +69,45 @@ namespace DocumentProcessor.Tests.Services
 
             Console.WriteLine($"Test HTML content:\n{htmlContent}");
 
-            // Set up Azure DevOps service mock
+            // Set up Azure DevOps service to return HTML content
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
                 .ReturnsAsync(htmlContent);
 
-            // Set up document processing options with actual HtmlToWordConverter
+            // Use actual HtmlToWordConverter for table conversion
             var options = new DocumentProcessingOptions
             {
                 SourcePath = _testFilePath,
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = new HtmlToWordConverter(), // Use actual converter
+                HtmlConverter = new HtmlToWordConverter(),
                 FQDocumentField = TEST_FQ_FIELD
             };
 
             try
             {
                 // Act
+                Console.WriteLine("\n=== Processing Document ===");
                 var processor = new WordDocumentProcessor(options);
                 await processor.ProcessDocumentAsync();
 
                 // Assert
-                Assert.True(File.Exists(_outputFilePath));
+                Assert.True(File.Exists(_outputFilePath), "Output file was not created");
 
                 using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
                 {
                     var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
                     var body = mainPart.Document.Body ?? throw new InvalidOperationException("Document body is missing");
 
-                    Console.WriteLine($"Document content:\n{body.InnerXml}");
+                    Console.WriteLine($"\n=== Document Body XML ===\n{body.InnerXml}");
 
-                    // Find tables in the document
                     var tables = body.Descendants<Table>().ToList();
                     Assert.True(tables.Any(), "No tables found in the document");
+                    Console.WriteLine($"Found {tables.Count} table(s) in the document");
 
                     var table = tables.First();
-                    Console.WriteLine($"Found table XML:\n{table.OuterXml}");
+                    Console.WriteLine($"\n=== Table XML ===\n{table.OuterXml}");
 
                     var rows = table.Elements<TableRow>().ToList();
                     Assert.Equal(3, rows.Count); // Header + 2 data rows
@@ -125,7 +127,16 @@ namespace DocumentProcessor.Tests.Services
                     var secondRowCells = rows[2].Elements<TableCell>().ToList();
                     Assert.Equal("Cell 3", secondRowCells[0].InnerText.Trim());
                     Assert.Equal("Cell 4", secondRowCells[1].InnerText.Trim());
+
+                    Console.WriteLine("\n=== Table Structure Validation Complete ===");
                 }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"\n=== Test Failed ===");
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                throw;
             }
             finally
             {
