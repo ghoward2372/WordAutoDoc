@@ -17,35 +17,36 @@ namespace DocumentProcessor.Services
             if (string.IsNullOrEmpty(html))
                 return string.Empty;
 
-            Console.WriteLine($"Converting HTML content: {html}");
+            Console.WriteLine($"=== Converting HTML Content ===\n{html.Trim()}");
 
             if (html.Contains("[[AcronymTable"))
                 return html;
 
-            // First check for tables
-            var tableMatches = Regex.Matches(html, @"<table[^>]*>(.*?)</table>", RegexOptions.Singleline);
+            // First process tables
+            var tableMatches = Regex.Matches(html, @"<table[^>]*>(.*?)</table>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            Console.WriteLine($"Found {tableMatches.Count} table(s) in HTML content");
+
             foreach (Match tableMatch in tableMatches)
             {
                 try
                 {
-                    Console.WriteLine($"Found table match: {tableMatch.Value}");
+                    Console.WriteLine($"=== Processing Table Match ===\n{tableMatch.Value}");
                     var tableData = ExtractTableData(tableMatch.Value);
                     var wordTable = CreateTable(tableData);
 
-                    // Ensure proper table XML structure with namespace
+                    // Add namespace declaration to ensure proper XML structure
                     var tableXml = wordTable.OuterXml;
                     if (!tableXml.Contains("xmlns:w="))
                     {
                         tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                     }
 
-                    Console.WriteLine($"Created Word table XML: {tableXml}");
-                    // Replace HTML table with Word table XML and ensure proper document structure
-                    html = html.Replace(tableMatch.Value, $"<w:p/>{tableXml}<w:p/>");
+                    Console.WriteLine($"=== Created Word Table XML ===\n{tableXml}");
+                    html = html.Replace(tableMatch.Value, tableXml);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error converting HTML table: {ex.Message}");
+                    Console.WriteLine($"Error processing table: {ex.Message}");
                     continue;
                 }
             }
@@ -65,7 +66,7 @@ namespace DocumentProcessor.Services
             // Remove any remaining HTML tags except Word XML
             html = Regex.Replace(html, @"<(?!w:)[^>]+>", string.Empty);
 
-            Console.WriteLine($"Converted content: {html}");
+            Console.WriteLine($"=== Final Converted Content ===\n{html.Trim()}");
             return html.Trim();
         }
 
@@ -74,13 +75,15 @@ namespace DocumentProcessor.Services
             var rows = new List<string[]>();
 
             // Extract rows
-            var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline);
+            var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            Console.WriteLine($"Found {rowMatches.Count} table rows");
+
             foreach (Match rowMatch in rowMatches)
             {
                 var cells = new List<string>();
 
                 // Extract cells (both th and td)
-                var cellMatches = Regex.Matches(rowMatch.Value, @"<(td|th)[^>]*>(.*?)</(?:td|th)>", RegexOptions.Singleline);
+                var cellMatches = Regex.Matches(rowMatch.Value, @"<(td|th)[^>]*>(.*?)</(?:td|th)>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
                 foreach (Match cellMatch in cellMatches)
                 {
                     var cellContent = cellMatch.Groups[2].Value;
@@ -100,6 +103,7 @@ namespace DocumentProcessor.Services
                 throw new InvalidOperationException("No valid data found in table");
             }
 
+            Console.WriteLine($"Extracted {rows.Count} rows with {rows[0].Length} columns");
             return rows.ToArray();
         }
 
@@ -139,7 +143,7 @@ namespace DocumentProcessor.Services
                 var row = new TableRow();
                 var rowData = data[rowIndex];
 
-                // Special formatting for header row
+                // Add header row properties
                 if (rowIndex == 0)
                 {
                     row.AppendChild(new TableRowProperties(new TableRowHeight { Val = 400 }));
@@ -154,35 +158,35 @@ namespace DocumentProcessor.Services
                         new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
                     );
 
-                    // Add header row styling
+                    // Add header styling for first row
                     if (rowIndex == 0)
                     {
                         cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
                     }
                     cell.AppendChild(cellProps);
 
-                    // Create paragraph with run and text
-                    var text = colIndex < rowData.Length ? rowData[colIndex] : string.Empty;
+                    // Create run with text
                     var run = new Run();
-
                     if (rowIndex == 0)
                     {
                         run.AppendChild(new RunProperties(new Bold()));
                     }
-                    run.AppendChild(new Text(text));
+                    run.AppendChild(new Text(colIndex < rowData.Length ? rowData[colIndex] : string.Empty));
 
-                    var paragraph = new Paragraph(
+                    // Create paragraph with run
+                    var para = new Paragraph(
                         new ParagraphProperties(new Justification { Val = JustificationValues.Center }),
                         run
                     );
 
-                    cell.AppendChild(paragraph);
+                    cell.AppendChild(para);
                     row.AppendChild(cell);
                 }
 
                 table.AppendChild(row);
             }
 
+            Console.WriteLine($"Created table with {data.Length} rows and {data[0].Length} columns");
             return table;
         }
     }

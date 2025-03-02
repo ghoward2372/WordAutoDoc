@@ -74,7 +74,7 @@ namespace DocumentProcessor.Services
             foreach (var paragraph in paragraphsToProcess)
             {
                 var text = paragraph.InnerText;
-                Console.WriteLine($"\nProcessing paragraph: {text}");
+                Console.WriteLine($"\nProcessing paragraph text: {text}");
 
                 var processed = await ProcessTextAsync(text);
 
@@ -89,12 +89,14 @@ namespace DocumentProcessor.Services
                         // Add namespace to table if missing
                         if (!table.OuterXml.Contains("xmlns:w="))
                         {
+                            Console.WriteLine("Adding namespace to table XML");
                             var newTable = new Table();
                             newTable.InnerXml = table.OuterXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                             table = newTable;
                         }
 
-                        // Insert table and remove the original paragraph
+                        // Insert table and remove original paragraph
+                        Console.WriteLine("Inserting table into document");
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
 
@@ -106,11 +108,12 @@ namespace DocumentProcessor.Services
                         throw;
                     }
                 }
-                else if (text != processed.ProcessedText)
+                else if (!processed.IsTable && text != processed.ProcessedText)
                 {
                     Console.WriteLine("Updating paragraph with processed text");
+                    var processedText = _options.AcronymProcessor.ProcessText(processed.ProcessedText);
                     paragraph.RemoveAllChildren();
-                    paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
+                    paragraph.AppendChild(new Run(new Text(processedText)));
                 }
             }
         }
@@ -132,26 +135,30 @@ namespace DocumentProcessor.Services
                         var tagContent = match.Groups[1].Value;
                         var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
 
+                        Console.WriteLine($"Processed content from {tagProcessor.Key} tag processor:");
+                        Console.WriteLine(processedContent);
+
                         if (IsTableXml(processedContent))
                         {
-                            Console.WriteLine("Converting XML to table...");
+                            Console.WriteLine("Table XML detected, creating Word table...");
                             result.IsTable = true;
                             result.TableElement = CreateTableFromXml(processedContent);
                             return result;
                         }
 
                         text = text.Replace(match.Value, processedContent);
-                        Console.WriteLine("Tag processed successfully");
+                        Console.WriteLine($"Updated text after processing {tagProcessor.Key} tag: {text}");
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
-                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag]");
+                        Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag: {ex.Message}]");
                     }
                 }
             }
 
-            result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
+            result.ProcessedText = text;
             return result;
         }
 
@@ -161,14 +168,20 @@ namespace DocumentProcessor.Services
                 return false;
 
             var trimmedContent = content.Trim();
-            return trimmedContent.Contains("<w:tbl");
+            if (trimmedContent.Contains("<w:tbl"))
+            {
+                Console.WriteLine("Found table XML content:");
+                Console.WriteLine(trimmedContent);
+                return true;
+            }
+            return false;
         }
 
         private Table CreateTableFromXml(string tableXml)
         {
             try
             {
-                Console.WriteLine($"Creating table from XML content: {tableXml}");
+                Console.WriteLine($"Creating table from XML content:\n{tableXml}");
 
                 var doc = new XmlDocument();
                 doc.LoadXml(tableXml);
@@ -189,59 +202,16 @@ namespace DocumentProcessor.Services
 
                 // Verify table structure
                 var rowCount = table.Elements<TableRow>().Count();
-                Console.WriteLine($"Table created successfully with {rowCount} rows");
+                var columnCount = table.Elements<TableRow>().FirstOrDefault()?.Elements<TableCell>().Count() ?? 0;
+                Console.WriteLine($"Table created successfully with {rowCount} rows and {columnCount} columns per row");
 
                 return table;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error creating table from XML: {ex.Message}");
-                Console.WriteLine($"Table XML content: {tableXml}");
+                Console.WriteLine($"Table XML content:\n{tableXml}");
                 throw;
-            }
-        }
-
-        public string ExtractTextFromXml(string xml)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(xml))
-                    return string.Empty;
-
-                Console.WriteLine($"Processing XML content: {xml}");
-
-                // First pass: Extract text from Word text tags
-                var matches = Regex.Matches(xml, @"<w:t(?:\s[^>]*)?>(.*?)</w:t>");
-                if (matches.Count > 0)
-                {
-                    string textContent = string.Join(" ",
-                        matches.Cast<Match>()
-                                .Select(m => m.Groups[1].Value.Trim())
-                                .Where(s => !string.IsNullOrWhiteSpace(s)));
-                    Console.WriteLine($"Extracted Word text content: {textContent}");
-                    return textContent;
-                }
-
-                // Fallback for non-Word XML: Remove all XML tags recursively
-                string withoutTags = xml;
-                string previousResult;
-                do
-                {
-                    previousResult = withoutTags;
-                    withoutTags = Regex.Replace(previousResult, @"<[^>]+>", string.Empty);
-                } while (withoutTags != previousResult);
-
-                // Clean up the result
-                string decoded = System.Net.WebUtility.HtmlDecode(withoutTags);
-                string normalized = Regex.Replace(decoded, @"\s+", " ").Trim();
-
-                Console.WriteLine($"Final extracted text: {normalized}");
-                return normalized;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error extracting text from XML: {ex.Message}");
-                return string.Empty;
             }
         }
     }

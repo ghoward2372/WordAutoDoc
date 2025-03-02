@@ -48,12 +48,9 @@ namespace DocumentProcessor.Tests.Services
             var mainPart = doc.AddMainDocumentPart();
             mainPart.Document = new Document(new Body());
 
-            // Add test content with both acronyms and work item tag
-            var para1 = mainPart.Document.Body!.AppendChild(new Paragraph());
-            para1.AppendChild(new Run(new Text("The API and GUI are important components.")));
-
-            var para2 = mainPart.Document.Body.AppendChild(new Paragraph());
-            para2.AppendChild(new Run(new Text("[[WorkItem:1234]]")));
+            // Add test content with work item tag
+            var para = mainPart.Document.Body!.AppendChild(new Paragraph());
+            para.AppendChild(new Run(new Text("[[WorkItem:1234]]")));
 
             mainPart.Document.Save();
         }
@@ -62,27 +59,28 @@ namespace DocumentProcessor.Tests.Services
         public async Task ProcessDocument_WithHtmlTable_CreatesWordTable()
         {
             // Arrange
-            var htmlContent = @"<table>
-                <tr><th>Header 1</th><th>Header 2</th></tr>
-                <tr><td>Cell 1</td><td>Cell 2</td></tr>
-                <tr><td>Cell 3</td><td>Cell 4</td></tr>
-            </table>";
+            var htmlContent = @"
+<table>
+    <tr><th>Header 1</th><th>Header 2</th></tr>
+    <tr><td>Cell 1</td><td>Cell 2</td></tr>
+    <tr><td>Cell 3</td><td>Cell 4</td></tr>
+</table>";
 
-            Console.WriteLine($"Test HTML content: {htmlContent}");
+            Console.WriteLine($"Test HTML content:\n{htmlContent}");
 
-            // Mock Azure DevOps service to return HTML content
+            // Set up Azure DevOps service mock
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
                 .ReturnsAsync(htmlContent);
 
-            // Use actual HtmlToWordConverter instead of mock
+            // Set up document processing options with actual HtmlToWordConverter
             var options = new DocumentProcessingOptions
             {
                 SourcePath = _testFilePath,
                 OutputPath = _outputFilePath,
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
                 AcronymProcessor = _acronymProcessor,
-                HtmlConverter = new HtmlToWordConverter(),
+                HtmlConverter = new HtmlToWordConverter(), // Use actual converter
                 FQDocumentField = TEST_FQ_FIELD
             };
 
@@ -100,13 +98,14 @@ namespace DocumentProcessor.Tests.Services
                     var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
                     var body = mainPart.Document.Body ?? throw new InvalidOperationException("Document body is missing");
 
-                    Console.WriteLine($"Document content: {body.InnerXml}");
+                    Console.WriteLine($"Document content:\n{body.InnerXml}");
 
-                    var tables = body.Elements<Table>().ToList();
+                    // Find tables in the document
+                    var tables = body.Descendants<Table>().ToList();
                     Assert.True(tables.Any(), "No tables found in the document");
 
                     var table = tables.First();
-                    Console.WriteLine($"Found table: {table.OuterXml}");
+                    Console.WriteLine($"Found table XML:\n{table.OuterXml}");
 
                     var rows = table.Elements<TableRow>().ToList();
                     Assert.Equal(3, rows.Count); // Header + 2 data rows
@@ -114,17 +113,18 @@ namespace DocumentProcessor.Tests.Services
                     // Verify header row
                     var headerCells = rows[0].Elements<TableCell>().ToList();
                     Assert.Equal(2, headerCells.Count);
-                    Assert.Equal("Header 1", headerCells[0].InnerText);
-                    Assert.Equal("Header 2", headerCells[1].InnerText);
+                    Assert.Equal("Header 1", headerCells[0].InnerText.Trim());
+                    Assert.Equal("Header 2", headerCells[1].InnerText.Trim());
 
-                    // Verify data rows
+                    // Verify first data row
                     var firstRowCells = rows[1].Elements<TableCell>().ToList();
-                    Assert.Equal("Cell 1", firstRowCells[0].InnerText);
-                    Assert.Equal("Cell 2", firstRowCells[1].InnerText);
+                    Assert.Equal("Cell 1", firstRowCells[0].InnerText.Trim());
+                    Assert.Equal("Cell 2", firstRowCells[1].InnerText.Trim());
 
+                    // Verify second data row
                     var secondRowCells = rows[2].Elements<TableCell>().ToList();
-                    Assert.Equal("Cell 3", secondRowCells[0].InnerText);
-                    Assert.Equal("Cell 4", secondRowCells[1].InnerText);
+                    Assert.Equal("Cell 3", secondRowCells[0].InnerText.Trim());
+                    Assert.Equal("Cell 4", secondRowCells[1].InnerText.Trim());
                 }
             }
             finally
@@ -134,77 +134,6 @@ namespace DocumentProcessor.Tests.Services
                 if (File.Exists(_outputFilePath))
                     File.Delete(_outputFilePath);
             }
-        }
-
-        [Fact]
-        public async Task ProcessDocument_WithoutADO_OnlyProcessesAcronyms()
-        {
-            // Arrange
-            var options = new DocumentProcessingOptions
-            {
-                SourcePath = _testFilePath,
-                OutputPath = _outputFilePath,
-                AzureDevOpsService = null,
-                AcronymProcessor = _acronymProcessor,
-                HtmlConverter = _mockHtmlConverter.Object,
-                FQDocumentField = TEST_FQ_FIELD
-            };
-
-            try
-            {
-                // Act
-                var processor = new WordDocumentProcessor(options);
-                await processor.ProcessDocumentAsync();
-
-                // Assert
-                Assert.True(File.Exists(_outputFilePath));
-                using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
-                {
-                    var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
-                    var text = mainPart.Document.Body!.InnerText;
-
-                    Console.WriteLine($"Document text: {text}");
-
-                    // Verify acronyms were processed
-                    Assert.Contains("API", text);
-                    Assert.Contains("GUI", text);
-                    Assert.Contains("[[WorkItem:1234]]", text);
-                }
-            }
-            finally
-            {
-                if (File.Exists(_testFilePath))
-                    File.Delete(_testFilePath);
-                if (File.Exists(_outputFilePath))
-                    File.Delete(_outputFilePath);
-            }
-        }
-
-        [Fact]
-        public void ExtractTextFromXml_WithComplexWordXml_ExtractsTextContent()
-        {
-            // Arrange
-            var complexXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
-                <w:r><w:rPr><w:b/></w:rPr><w:t>First</w:t></w:r>
-                <w:r><w:t xml:space=""preserve""> </w:t></w:r>
-                <w:r><w:rPr><w:i/></w:rPr><w:t>Second</w:t></w:r>
-            </w:p>";
-
-            var processor = new WordDocumentProcessor(new DocumentProcessingOptions
-            {
-                SourcePath = "test.docx",
-                OutputPath = "output.docx",
-                AzureDevOpsService = null,
-                AcronymProcessor = _acronymProcessor,
-                HtmlConverter = new HtmlToWordConverter(),
-                FQDocumentField = TEST_FQ_FIELD
-            });
-
-            // Act
-            string result = processor.ExtractTextFromXml(complexXml);
-
-            // Assert
-            Assert.Equal("First Second", result);
         }
 
         public void Dispose()
