@@ -1,12 +1,13 @@
-using DocumentProcessor.Models;
+﻿using DocumentProcessor.Models;
+using DocumentProcessor.Models.Configuration;
 using DocumentProcessor.Services;
 using DocumentProcessor.Tests;
-using DocumentProcessor.Models.Configuration;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.IO;
 
 namespace DocumentProcessor
 {
@@ -16,6 +17,18 @@ namespace DocumentProcessor
         {
             try
             {
+                try
+                {
+                    Assembly interopWord = Assembly.Load("Microsoft.Office.Interop.Word");
+                    Console.WriteLine("Interop loaded successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Interop failed to load: {ex.Message}");
+                }
+
+
+
                 if (args.Length == 1 && args[0] == "--create-test")
                 {
                     string testFilePath = "test_document.docx";
@@ -24,19 +37,21 @@ namespace DocumentProcessor
                     return;
                 }
 
-                if (args.Length != 2)
+                if (args.Length < 2)
                 {
-                    Console.WriteLine("Usage: DocumentProcessor.exe <source_file> <output_file>");
+                    Console.WriteLine("Usage: DocumentProcessor.exe <source_file> <output_file> [/check]");
                     Console.WriteLine("       DocumentProcessor.exe --create-test");
                     return;
                 }
 
                 string sourceFile = args[0];
                 string outputFile = args[1];
+                bool checkGrammar = args.Length > 2 && args[2].Equals("/check", StringComparison.OrdinalIgnoreCase);
 
                 Console.WriteLine($"\n=== Document Processing Started ===");
                 Console.WriteLine($"Source: {sourceFile}");
                 Console.WriteLine($"Output: {outputFile}");
+                Console.WriteLine($"Grammar check: {(checkGrammar ? "Enabled" : "Disabled")}");
 
                 // Load acronym configuration
                 var acronymConfig = LoadAcronymConfiguration();
@@ -68,6 +83,21 @@ namespace DocumentProcessor
 
                 var processor = new WordDocumentProcessor(options);
                 await processor.ProcessDocumentAsync();
+
+                // Run grammar check if requested
+                if (checkGrammar)
+                {
+                    try
+                    {
+                        var grammarChecker = new GrammarChecker(outputFile);
+                        grammarChecker.CheckAndFixGrammar();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"\nWarning: Grammar checking failed - {ex.Message}");
+                        Console.WriteLine("Continuing with document processing...");
+                    }
+                }
 
                 Console.WriteLine("\n=== Processing Complete ===");
                 Console.WriteLine($"Output document ready at: {outputFile}");

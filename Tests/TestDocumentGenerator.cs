@@ -21,6 +21,9 @@ namespace DocumentProcessor.Tests
                     // Add test content with various tags
                     AddParagraph(body, "Test Document for Document Processor");
                     AddParagraph(body, string.Empty);
+                    AddParagraph(body, "Grammar Test Paragraph:");
+                    AddParagraph(body, "The cats and dog is running fast. We dont need no help with grammer. This sentense contains muliple mispelled words. The weather have been nice yesterday?");
+                    AddParagraph(body, string.Empty);
                     AddParagraph(body, "Work Item Example:");
                     AddParagraph(body, "[[WorkItem:1234]]");
                     AddParagraph(body, string.Empty);
