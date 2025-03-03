@@ -1,6 +1,5 @@
 using DocumentProcessor.Services;
 using System.Threading.Tasks;
-using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
