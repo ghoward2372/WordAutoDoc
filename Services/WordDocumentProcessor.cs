@@ -30,10 +30,8 @@ namespace DocumentProcessor.Services
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _tagProcessors = new Dictionary<string, ITagProcessor>();
 
-            // Always add AcronymTable processor
             _tagProcessors.Add("AcronymTable", new AcronymTableTagProcessor(options.AcronymProcessor, options.HtmlConverter));
 
-            // Only add Azure DevOps related processors if service is available
             if (options.AzureDevOpsService != null)
             {
                 _tagProcessors.Add("WorkItem", new WorkItemTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
@@ -65,6 +63,7 @@ namespace DocumentProcessor.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing document: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }
@@ -94,6 +93,7 @@ namespace DocumentProcessor.Services
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error inserting table: {ex.Message}");
+                        Console.WriteLine($"Stack trace: {ex.StackTrace}");
                         throw;
                     }
                 }
@@ -120,7 +120,6 @@ namespace DocumentProcessor.Services
             {
                 Console.WriteLine("Inserting mixed content with tables and lists...");
 
-                // Split content by markers
                 var parts = new List<(string Content, string Type)>();
                 var currentText = new StringBuilder();
                 var lines = content.Split('\n');
@@ -178,30 +177,102 @@ namespace DocumentProcessor.Services
                 {
                     if (string.IsNullOrWhiteSpace(part.Content)) continue;
 
+                    Console.WriteLine($"Processing part type: {part.Type}");
+                    Console.WriteLine($"Content preview: {part.Content.Substring(0, Math.Min(100, part.Content.Length))}...");
+
                     if (part.Type == "table")
                     {
                         Console.WriteLine("Processing embedded table");
                         var tableXml = part.Content;
-                        if (!tableXml.Contains("xmlns:w="))
-                        {
-                            tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
-                        }
 
-                        var table = new Table();
-
-                        // Parse table XML and load it into the table element
-                        using (var stringReader = new StringReader(tableXml))
+                        try
                         {
-                            var xElement = XElement.Load(stringReader);
-                            using (var reader = xElement.CreateReader())
+                            var table = new Table();
+
+                            // Ensure proper namespace
+                            if (!tableXml.Contains("xmlns:w="))
                             {
-                                table.Load(reader);
+                                tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                            }
+
+                            // Create proper table structure
+                            var xElement = XElement.Parse(tableXml);
+                            table.AppendChild(new TableProperties(
+                                new TableStyle { Val = "TableGrid" },
+                                new TableBorders(
+                                    new TopBorder { Val = BorderValues.Single },
+                                    new BottomBorder { Val = BorderValues.Single },
+                                    new LeftBorder { Val = BorderValues.Single },
+                                    new RightBorder { Val = BorderValues.Single },
+                                    new InsideHorizontalBorder { Val = BorderValues.Single },
+                                    new InsideVerticalBorder { Val = BorderValues.Single }
+                                )
+                            ));
+
+                            // Add rows and cells
+                            foreach (var rowElement in xElement.Elements())
+                            {
+                                if (rowElement.Name.LocalName != "tr") continue;
+
+                                var row = new TableRow();
+                                foreach (var cellElement in rowElement.Elements())
+                                {
+                                    if (cellElement.Name.LocalName != "tc") continue;
+
+                                    var cell = new TableCell();
+                                    foreach (var paraElement in cellElement.Elements())
+                                    {
+                                        if (paraElement.Name.LocalName != "p") continue;
+
+                                        var para = new Paragraph();
+                                        foreach (var runElement in paraElement.Elements())
+                                        {
+                                            if (runElement.Name.LocalName != "r") continue;
+
+                                            var run = new Run();
+                                            var textElements = runElement.Elements().Where(e => e.Name.LocalName == "t");
+                                            foreach (var textElement in textElements)
+                                            {
+                                                run.AppendChild(new Text(textElement.Value));
+                                            }
+                                            if (run.HasChildren)
+                                            {
+                                                para.AppendChild(run);
+                                            }
+                                        }
+                                        if (para.HasChildren)
+                                        {
+                                            cell.AppendChild(para);
+                                        }
+                                    }
+                                    if (cell.HasChildren)
+                                    {
+                                        row.AppendChild(cell);
+                                    }
+                                }
+                                if (row.HasChildren)
+                                {
+                                    table.AppendChild(row);
+                                }
+                            }
+
+                            if (table.HasChildren)
+                            {
+                                currentElement.InsertAfterSelf(table);
+                                currentElement = table;
+                                Console.WriteLine("Table inserted successfully");
+                            }
+                            else
+                            {
+                                Console.WriteLine("Warning: Table had no valid content to insert");
                             }
                         }
-
-                        currentElement.InsertAfterSelf(table);
-                        currentElement = table;
-                        Console.WriteLine("Table inserted successfully");
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error creating table: {ex.Message}");
+                            Console.WriteLine($"Table XML: {tableXml}");
+                            throw;
+                        }
                     }
                     else if (part.Type == "list")
                     {
@@ -210,25 +281,59 @@ namespace DocumentProcessor.Services
                         {
                             if (!string.IsNullOrWhiteSpace(listParagraphXml))
                             {
-                                var paragraphXml = listParagraphXml.Trim();
-                                if (!paragraphXml.Contains("xmlns:w="))
+                                try
                                 {
-                                    paragraphXml = paragraphXml.Replace("<w:p>", $"<w:p xmlns:w=\"{WordMlNamespace}\">");
-                                }
-
-                                // Parse paragraph XML and create new paragraph
-                                var newParagraph = new Paragraph();
-                                using (var stringReader = new StringReader(paragraphXml))
-                                {
-                                    var xElement = XElement.Load(stringReader);
-                                    using (var reader = xElement.CreateReader())
+                                    var paragraphXml = listParagraphXml.Trim();
+                                    if (!paragraphXml.Contains("xmlns:w="))
                                     {
-                                        newParagraph.Load(reader);
+                                        paragraphXml = paragraphXml.Replace("<w:p>", $"<w:p xmlns:w=\"{WordMlNamespace}\">");
+                                    }
+
+                                    var xElement = XElement.Parse(paragraphXml);
+                                    var paragraph = new Paragraph();
+
+                                    // Extract and set paragraph properties
+                                    var pPrElement = xElement.Elements().FirstOrDefault(e => e.Name.LocalName == "pPr");
+                                    if (pPrElement != null)
+                                    {
+                                        var numPrElement = pPrElement.Elements().FirstOrDefault(e => e.Name.LocalName == "numPr");
+                                        if (numPrElement != null)
+                                        {
+                                            var ilvlElement = numPrElement.Elements().FirstOrDefault(e => e.Name.LocalName == "ilvl");
+                                            var numIdElement = numPrElement.Elements().FirstOrDefault(e => e.Name.LocalName == "numId");
+
+                                            if (ilvlElement?.Attribute("val")?.Value is string ilvl &&
+                                                numIdElement?.Attribute("val")?.Value is string numId)
+                                            {
+                                                paragraph.ParagraphProperties = new ParagraphProperties(
+                                                    new NumberingProperties(
+                                                        new NumberingLevelReference { Val = int.Parse(ilvl) },
+                                                        new NumberingId { Val = int.Parse(numId) }
+                                                    )
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    // Extract text content
+                                    var runs = xElement.Descendants().Where(e => e.Name.LocalName == "t");
+                                    foreach (var run in runs)
+                                    {
+                                        paragraph.AppendChild(new Run(new Text(run.Value)));
+                                    }
+
+                                    if (paragraph.HasChildren)
+                                    {
+                                        currentElement.InsertAfterSelf(paragraph);
+                                        currentElement = paragraph;
                                     }
                                 }
-
-                                currentElement.InsertAfterSelf(newParagraph);
-                                currentElement = newParagraph;
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Error creating list paragraph: {ex.Message}");
+                                    Console.WriteLine($"Paragraph XML: {listParagraphXml}");
+                                    throw;
+                                }
                             }
                         }
                         Console.WriteLine("List inserted successfully");
@@ -236,10 +341,14 @@ namespace DocumentProcessor.Services
                     else
                     {
                         Console.WriteLine("Processing text content");
-                        var newParagraph = new Paragraph(new Run(new Text(part.Content)));
-                        currentElement.InsertAfterSelf(newParagraph);
-                        currentElement = newParagraph;
-                        Console.WriteLine("Text paragraph inserted");
+                        var text = part.Content.Trim();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            var newParagraph = new Paragraph(new Run(new Text(text)));
+                            currentElement.InsertAfterSelf(newParagraph);
+                            currentElement = newParagraph;
+                            Console.WriteLine("Text paragraph inserted");
+                        }
                     }
                 }
 

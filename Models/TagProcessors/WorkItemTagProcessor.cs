@@ -67,10 +67,11 @@ namespace DocumentProcessor.Models.TagProcessors
                         if (tableData.Length > 0)
                         {
                             var table = _htmlConverter.CreateTable(tableData);
-                            var tableXml = table.OuterXml;
+                            Console.WriteLine($"Table created from {tableData.Length} rows of data");
+                            Console.WriteLine($"Table XML:\n{table.OuterXml}");
 
                             processedContent.AppendLine(TABLE_START_MARKER);
-                            processedContent.AppendLine(tableXml);
+                            processedContent.AppendLine(table.OuterXml);
                             processedContent.AppendLine(TABLE_END_MARKER);
                             Console.WriteLine("Table conversion complete");
                         }
@@ -103,6 +104,7 @@ namespace DocumentProcessor.Models.TagProcessors
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing work item {tagContent}: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 return ProcessingResult.FromText($"[Error processing work item {tagContent}: {ex.Message}]");
             }
         }
