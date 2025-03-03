@@ -90,7 +90,7 @@ namespace DocumentProcessor.Tests.TagProcessors
 
             var mockTable = new Table();
             var tableXml = $@"<w:tbl xmlns:w=""{WORD_ML_NAMESPACE}""><w:tblPr><w:tblStyle w:val=""TableGrid""/></w:tblPr><w:tr><w:tc><w:p><w:r><w:t>Header 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Header 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Cell 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
-            mockTable.OuterXml = tableXml;
+            mockTable.InnerXml = tableXml;
 
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
