@@ -14,7 +14,6 @@ namespace DocumentProcessor.Models.TagProcessors
         private readonly IAzureDevOpsService _azureDevOpsService;
         private readonly IHtmlToWordConverter _htmlConverter;
         private readonly ITextBlockProcessor _textBlockProcessor;
-        private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         private const string TABLE_START_MARKER = "<TABLE_START>";
         private const string TABLE_END_MARKER = "<TABLE_END>";
         private const string LIST_START_MARKER = "<LIST_START>";
@@ -67,8 +66,7 @@ namespace DocumentProcessor.Models.TagProcessors
                         if (tableData.Length > 0)
                         {
                             var table = _htmlConverter.CreateTable(tableData);
-                            Console.WriteLine($"Table created from {tableData.Length} rows of data");
-                            Console.WriteLine($"Table XML:\n{table.OuterXml}");
+                            Console.WriteLine($"Table created with {tableData.Length} rows");
 
                             processedContent.AppendLine(TABLE_START_MARKER);
                             processedContent.AppendLine(table.OuterXml);
@@ -80,6 +78,9 @@ namespace DocumentProcessor.Models.TagProcessors
                     {
                         Console.WriteLine("Converting list block to Word format...");
                         var listXml = _htmlConverter.CreateBulletList(block.Content);
+                        Console.WriteLine("Generated list XML:");
+                        Console.WriteLine(listXml);
+
                         processedContent.AppendLine(LIST_START_MARKER);
                         processedContent.AppendLine(listXml);
                         processedContent.AppendLine(LIST_END_MARKER);
@@ -134,12 +135,6 @@ namespace DocumentProcessor.Models.TagProcessors
                 {
                     rows.Add(cells.ToArray());
                 }
-            }
-
-            if (rows.Count == 0)
-            {
-                Console.WriteLine("Warning: No valid data found in table");
-                return new string[0][];
             }
 
             Console.WriteLine($"Extracted {rows.Count} rows with {rows[0].Length} columns");

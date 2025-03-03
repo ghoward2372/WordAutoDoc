@@ -2,15 +2,11 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
-using DocumentProcessor.Models.TagProcessors;
-using DocumentProcessor.Utilities;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Xml.Linq;
 
 namespace DocumentProcessor.Services
@@ -73,9 +69,9 @@ namespace DocumentProcessor.Services
             var paragraphsToProcess = body.Elements<Paragraph>().ToList();
             Console.WriteLine($"Processing {paragraphsToProcess.Count} paragraphs");
 
-            foreach (var paragraph in paragraphsToProcess)
+            foreach (var currentParagraph in paragraphsToProcess)
             {
-                var text = paragraph.InnerText;
+                var text = currentParagraph.InnerText;
                 Console.WriteLine($"\nProcessing paragraph text: {text}");
 
                 var processed = await ProcessTextAsync(text);
@@ -84,10 +80,9 @@ namespace DocumentProcessor.Services
                 {
                     try
                     {
-                        var table = processed.TableElement;
                         Console.WriteLine("Inserting table into document...");
-                        paragraph.InsertBeforeSelf(table);
-                        paragraph.Remove();
+                        body.InsertBefore(processed.TableElement, currentParagraph);
+                        currentParagraph.Remove();
                         Console.WriteLine("Table inserted successfully");
                     }
                     catch (Exception ex)
@@ -99,26 +94,28 @@ namespace DocumentProcessor.Services
                 }
                 else if (text != processed.ProcessedText)
                 {
-                    if (processed.ProcessedText.Contains(TABLE_START_MARKER) || 
+                    if (processed.ProcessedText.Contains(TABLE_START_MARKER) ||
                         processed.ProcessedText.Contains(LIST_START_MARKER))
                     {
-                        InsertMixedContent(processed.ProcessedText, paragraph);
+                        Console.WriteLine("Found special content markers, processing mixed content...");
+                        InsertMixedContent(processed.ProcessedText, currentParagraph, body);
                     }
                     else
                     {
                         Console.WriteLine("Updating paragraph text");
-                        paragraph.RemoveAllChildren();
-                        paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
+                        currentParagraph.RemoveAllChildren();
+                        currentParagraph.AppendChild(new Run(new Text(processed.ProcessedText)));
                     }
                 }
             }
         }
 
-        private void InsertMixedContent(string content, Paragraph paragraph)
+        private void InsertMixedContent(string content, Paragraph currentParagraph, Body body)
         {
             try
             {
                 Console.WriteLine("Inserting mixed content with tables and lists...");
+                Console.WriteLine($"Content preview: {content.Substring(0, Math.Min(100, content.Length))}...");
 
                 var parts = new List<(string Content, string Type)>();
                 var currentText = new StringBuilder();
@@ -126,7 +123,10 @@ namespace DocumentProcessor.Services
 
                 foreach (var line in lines)
                 {
-                    if (line.Trim() == TABLE_START_MARKER)
+                    var trimmedLine = line.Trim();
+                    Console.WriteLine($"Processing line: {trimmedLine.Substring(0, Math.Min(50, trimmedLine.Length))}...");
+
+                    if (trimmedLine == TABLE_START_MARKER)
                     {
                         if (currentText.Length > 0)
                         {
@@ -135,7 +135,7 @@ namespace DocumentProcessor.Services
                         }
                         continue;
                     }
-                    else if (line.Trim() == TABLE_END_MARKER)
+                    else if (trimmedLine == TABLE_END_MARKER)
                     {
                         if (currentText.Length > 0)
                         {
@@ -144,7 +144,7 @@ namespace DocumentProcessor.Services
                         }
                         continue;
                     }
-                    else if (line.Trim() == LIST_START_MARKER)
+                    else if (trimmedLine == LIST_START_MARKER)
                     {
                         if (currentText.Length > 0)
                         {
@@ -153,7 +153,7 @@ namespace DocumentProcessor.Services
                         }
                         continue;
                     }
-                    else if (line.Trim() == LIST_END_MARKER)
+                    else if (trimmedLine == LIST_END_MARKER)
                     {
                         if (currentText.Length > 0)
                         {
@@ -171,32 +171,31 @@ namespace DocumentProcessor.Services
                     parts.Add((currentText.ToString().Trim(), "text"));
                 }
 
-                OpenXmlElement currentElement = paragraph;
+                Console.WriteLine($"Split content into {parts.Count} parts:");
+                for (int i = 0; i < parts.Count; i++)
+                {
+                    Console.WriteLine($"Part {i + 1} - Type: {parts[i].Type}, Length: {parts[i].Content.Length}");
+                }
 
                 foreach (var part in parts)
                 {
                     if (string.IsNullOrWhiteSpace(part.Content)) continue;
 
-                    Console.WriteLine($"Processing part type: {part.Type}");
-                    Console.WriteLine($"Content preview: {part.Content.Substring(0, Math.Min(100, part.Content.Length))}...");
-
                     if (part.Type == "table")
                     {
                         Console.WriteLine("Processing embedded table");
-                        var tableXml = part.Content;
-
                         try
                         {
-                            var table = new Table();
-
-                            // Ensure proper namespace
+                            var tableXml = part.Content;
                             if (!tableXml.Contains("xmlns:w="))
                             {
                                 tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                             }
 
-                            // Create proper table structure
                             var xElement = XElement.Parse(tableXml);
+                            Console.WriteLine($"Table XML parsed successfully. Structure: {xElement.Name}");
+
+                            var table = new Table();
                             table.AppendChild(new TableProperties(
                                 new TableStyle { Val = "TableGrid" },
                                 new TableBorders(
@@ -209,7 +208,6 @@ namespace DocumentProcessor.Services
                                 )
                             ));
 
-                            // Add rows and cells
                             foreach (var rowElement in xElement.Elements())
                             {
                                 if (rowElement.Name.LocalName != "tr") continue;
@@ -258,8 +256,7 @@ namespace DocumentProcessor.Services
 
                             if (table.HasChildren)
                             {
-                                currentElement.InsertAfterSelf(table);
-                                currentElement = table;
+                                body.InsertBefore(table, currentParagraph);
                                 Console.WriteLine("Table inserted successfully");
                             }
                             else
@@ -270,73 +267,39 @@ namespace DocumentProcessor.Services
                         catch (Exception ex)
                         {
                             Console.WriteLine($"Error creating table: {ex.Message}");
-                            Console.WriteLine($"Table XML: {tableXml}");
+                            Console.WriteLine($"Table XML: {part.Content}");
                             throw;
                         }
                     }
                     else if (part.Type == "list")
                     {
                         Console.WriteLine("Processing embedded list");
-                        foreach (var listParagraphXml in part.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                        var lines = part.Content.Split('\n');
+                        foreach (var line in lines)
                         {
-                            if (!string.IsNullOrWhiteSpace(listParagraphXml))
+                            if (!string.IsNullOrWhiteSpace(line))
                             {
                                 try
                                 {
-                                    var paragraphXml = listParagraphXml.Trim();
-                                    if (!paragraphXml.Contains("xmlns:w="))
-                                    {
-                                        paragraphXml = paragraphXml.Replace("<w:p>", $"<w:p xmlns:w=\"{WordMlNamespace}\">");
-                                    }
-
-                                    var xElement = XElement.Parse(paragraphXml);
-                                    var paragraph = new Paragraph();
-
-                                    // Extract and set paragraph properties
-                                    var pPrElement = xElement.Elements().FirstOrDefault(e => e.Name.LocalName == "pPr");
-                                    if (pPrElement != null)
-                                    {
-                                        var numPrElement = pPrElement.Elements().FirstOrDefault(e => e.Name.LocalName == "numPr");
-                                        if (numPrElement != null)
-                                        {
-                                            var ilvlElement = numPrElement.Elements().FirstOrDefault(e => e.Name.LocalName == "ilvl");
-                                            var numIdElement = numPrElement.Elements().FirstOrDefault(e => e.Name.LocalName == "numId");
-
-                                            if (ilvlElement?.Attribute("val")?.Value is string ilvl &&
-                                                numIdElement?.Attribute("val")?.Value is string numId)
-                                            {
-                                                paragraph.ParagraphProperties = new ParagraphProperties(
-                                                    new NumberingProperties(
-                                                        new NumberingLevelReference { Val = int.Parse(ilvl) },
-                                                        new NumberingId { Val = int.Parse(numId) }
-                                                    )
-                                                );
-                                            }
-                                        }
-                                    }
-
-                                    // Extract text content
-                                    var runs = xElement.Descendants().Where(e => e.Name.LocalName == "t");
-                                    foreach (var run in runs)
-                                    {
-                                        paragraph.AppendChild(new Run(new Text(run.Value)));
-                                    }
-
-                                    if (paragraph.HasChildren)
-                                    {
-                                        currentElement.InsertAfterSelf(paragraph);
-                                        currentElement = paragraph;
-                                    }
+                                    var newParagraph = new Paragraph();
+                                    newParagraph.ParagraphProperties = new ParagraphProperties(
+                                        new NumberingProperties(
+                                            new NumberingLevelReference { Val = 0 },
+                                            new NumberingId { Val = 1 }
+                                        )
+                                    );
+                                    newParagraph.AppendChild(new Run(new Text(line.Trim())));
+                                    body.InsertBefore(newParagraph, currentParagraph);
                                 }
                                 catch (Exception ex)
                                 {
                                     Console.WriteLine($"Error creating list paragraph: {ex.Message}");
-                                    Console.WriteLine($"Paragraph XML: {listParagraphXml}");
+                                    Console.WriteLine($"Line content: {line}");
                                     throw;
                                 }
                             }
                         }
-                        Console.WriteLine("List inserted successfully");
+                        Console.WriteLine("List processing complete");
                     }
                     else
                     {
@@ -345,14 +308,13 @@ namespace DocumentProcessor.Services
                         if (!string.IsNullOrWhiteSpace(text))
                         {
                             var newParagraph = new Paragraph(new Run(new Text(text)));
-                            currentElement.InsertAfterSelf(newParagraph);
-                            currentElement = newParagraph;
+                            body.InsertBefore(newParagraph, currentParagraph);
                             Console.WriteLine("Text paragraph inserted");
                         }
                     }
                 }
 
-                paragraph.Remove();
+                currentParagraph.Remove();
             }
             catch (Exception ex)
             {
@@ -368,10 +330,9 @@ namespace DocumentProcessor.Services
 
             foreach (var tagProcessor in _tagProcessors)
             {
-                var pattern = RegexPatterns.GetTagPattern(tagProcessor.Key);
-                var matches = pattern.Matches(text);
+                var matches = System.Text.RegularExpressions.Regex.Matches(text, @"\[\[" + tagProcessor.Key + @":([^\]]+)\]\]");
 
-                foreach (Match match in matches)
+                foreach (System.Text.RegularExpressions.Match match in matches)
                 {
                     try
                     {

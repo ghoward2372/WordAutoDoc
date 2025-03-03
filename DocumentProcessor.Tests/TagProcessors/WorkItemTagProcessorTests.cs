@@ -122,40 +122,6 @@ namespace DocumentProcessor.Tests.TagProcessors
         }
 
         [Fact]
-        public async Task ProcessTagAsync_InvalidWorkItemId_ReturnsErrorMessage()
-        {
-            // Arrange
-            const string invalidId = "invalid";
-
-            // Act
-            var result = await _processor.ProcessTagAsync(invalidId, _options);
-
-            // Assert
-            Assert.NotNull(result);
-            Assert.False(result.IsTable);
-            Assert.Contains("[Invalid work item ID", result.ProcessedText);
-        }
-
-        [Fact]
-        public async Task ProcessTagAsync_ServiceReturnsNull_ReturnsEmptyResult()
-        {
-            // Arrange
-            const int workItemId = 1234;
-
-            _mockAzureDevOpsService
-                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
-                .ReturnsAsync((string?)null);
-
-            // Act
-            var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
-
-            // Assert
-            Assert.NotNull(result);
-            Assert.False(result.IsTable);
-            Assert.Contains("[Work Item not found or empty]", result.ProcessedText);
-        }
-
-        [Fact]
         public async Task ProcessTagAsync_WithBulletList_HandlesListCorrectly()
         {
             // Arrange
@@ -198,7 +164,7 @@ namespace DocumentProcessor.Tests.TagProcessors
                 .Returns(textBlocks);
 
             // Expected bullet list XML
-            var listXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+            var listXml = $@"<w:p xmlns:w=""{WORD_ML_NAMESPACE}"">
                 <w:pPr>
                     <w:numPr>
                         <w:ilvl w:val=""0""/>
@@ -207,7 +173,7 @@ namespace DocumentProcessor.Tests.TagProcessors
                 </w:pPr>
                 <w:r><w:t>First bullet point</w:t></w:r>
             </w:p>
-            <w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+            <w:p xmlns:w=""{WORD_ML_NAMESPACE}"">
                 <w:pPr>
                     <w:numPr>
                         <w:ilvl w:val=""0""/>
@@ -216,7 +182,7 @@ namespace DocumentProcessor.Tests.TagProcessors
                 </w:pPr>
                 <w:r><w:t>Second bullet point</w:t></w:r>
             </w:p>
-            <w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+            <w:p xmlns:w=""{WORD_ML_NAMESPACE}"">
                 <w:pPr>
                     <w:numPr>
                         <w:ilvl w:val=""0""/>
@@ -253,6 +219,40 @@ namespace DocumentProcessor.Tests.TagProcessors
             _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD), Times.Once);
             _mockHtmlConverter.Verify(x => x.CreateBulletList(It.IsAny<string>()), Times.Once);
             _mockTextBlockProcessor.Verify(x => x.SegmentText(mixedContent), Times.Once);
+        }
+
+        [Fact]
+        public async Task ProcessTagAsync_InvalidWorkItemId_ReturnsErrorMessage()
+        {
+            // Arrange
+            const string invalidId = "invalid";
+
+            // Act
+            var result = await _processor.ProcessTagAsync(invalidId, _options);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Contains("[Invalid work item ID", result.ProcessedText);
+        }
+
+        [Fact]
+        public async Task ProcessTagAsync_ServiceReturnsNull_ReturnsEmptyResult()
+        {
+            // Arrange
+            const int workItemId = 1234;
+
+            _mockAzureDevOpsService
+                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
+                .ReturnsAsync((string?)null);
+
+            // Act
+            var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Contains("[Work Item not found or empty]", result.ProcessedText);
         }
     }
 }

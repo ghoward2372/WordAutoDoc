@@ -13,6 +13,10 @@ namespace DocumentProcessor.Services
     {
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         private const int BulletListNumId = 1;
+        private const string LIST_START_MARKER = "<LIST_START>";
+        private const string LIST_END_MARKER = "<LIST_END>";
+        private const string TABLE_START_MARKER = "<TABLE_START>";
+        private const string TABLE_END_MARKER = "<TABLE_END>";
 
         public string ConvertHtmlToWordFormat(string html)
         {
@@ -28,7 +32,7 @@ namespace DocumentProcessor.Services
                 if (IsBulletListContent(html))
                 {
                     Console.WriteLine("Converting bullet list content");
-                    return $"<LIST_START>\n{CreateBulletList(html)}\n<LIST_END>";
+                    return $"{LIST_START_MARKER}\n{CreateBulletList(html)}\n{LIST_END_MARKER}";
                 }
 
                 // If the input is just a table, convert it directly
@@ -37,7 +41,7 @@ namespace DocumentProcessor.Services
                     Console.WriteLine("Converting isolated table content");
                     var tableData = ExtractTableData(html);
                     var wordTable = CreateTable(tableData);
-                    return wordTable.OuterXml;
+                    return $"{TABLE_START_MARKER}\n{wordTable.OuterXml}\n{TABLE_END_MARKER}";
                 }
 
                 // Process regular HTML content
@@ -71,11 +75,17 @@ namespace DocumentProcessor.Services
 
         private bool IsBulletListContent(string html)
         {
-            return Regex.IsMatch(html.Trim(), @"^\s*<ul[^>]*>.*?</ul>\s*$", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            if (string.IsNullOrEmpty(html)) return false;
+            var trimmedHtml = html.Trim();
+            // More flexible pattern to catch bullet lists from ADO
+            var isList = Regex.IsMatch(trimmedHtml, @"<ul[^>]*>.*?</ul>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            Console.WriteLine($"Is bullet list content: {isList}");
+            return isList;
         }
 
         public string CreateBulletList(string html)
         {
+            Console.WriteLine($"Creating bullet list from HTML:\n{html}");
             var listItems = ExtractListItems(html);
             var sb = new StringBuilder();
 
@@ -93,13 +103,16 @@ namespace DocumentProcessor.Services
                 sb.AppendLine(listParagraph);
             }
 
-            return sb.ToString();
+            var result = sb.ToString();
+            Console.WriteLine($"Generated bullet list XML:\n{result}");
+            return result;
         }
 
         private List<string> ExtractListItems(string html)
         {
             var items = new List<string>();
             var matches = Regex.Matches(html, @"<li[^>]*>(.*?)</li>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            Console.WriteLine($"Found {matches.Count} list items");
 
             foreach (Match match in matches)
             {
@@ -109,6 +122,7 @@ namespace DocumentProcessor.Services
                 if (!string.IsNullOrEmpty(content))
                 {
                     items.Add(content);
+                    Console.WriteLine($"Added list item: {content}");
                 }
             }
 
@@ -160,6 +174,7 @@ namespace DocumentProcessor.Services
                 var row = new TableRow();
                 var rowData = data[rowIndex];
 
+                // Add header properties if this is the first row
                 if (rowIndex == 0)
                 {
                     row.AppendChild(new TableRowProperties(new TableRowHeight { Val = 400 }));
@@ -204,7 +219,7 @@ namespace DocumentProcessor.Services
 
         private string[][] ExtractTableData(string html)
         {
-            Console.WriteLine($"Extracting data from table HTML:\n{html}");
+            Console.WriteLine($"Extracting data from table HTML...");
             var rows = new List<string[]>();
 
             // Extract rows
@@ -237,11 +252,6 @@ namespace DocumentProcessor.Services
             }
 
             Console.WriteLine($"Extracted {rows.Count} rows with {rows[0].Length} columns");
-            foreach (var row in rows)
-            {
-                Console.WriteLine($"Row data: {string.Join(" | ", row)}");
-            }
-
             return rows.ToArray();
         }
     }

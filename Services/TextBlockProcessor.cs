@@ -53,11 +53,13 @@ namespace DocumentProcessor.Services
 
             foreach (Match match in tableMatches)
             {
+                Console.WriteLine($"Table match at position {match.Index}, length {match.Length}");
                 allMatches.Add((match.Index, match.Length, BlockType.Table, match.Value));
             }
 
             foreach (Match match in listMatches)
             {
+                Console.WriteLine($"List match at position {match.Index}, length {match.Length}");
                 allMatches.Add((match.Index, match.Length, BlockType.List, match.Value));
             }
 
@@ -91,7 +93,6 @@ namespace DocumentProcessor.Services
 
                 // Update position to end of current special block
                 currentPosition = match.Index + match.Length;
-                Console.WriteLine($"Updated current position to: {currentPosition}");
             }
 
             // Add remaining text after last special block if any
