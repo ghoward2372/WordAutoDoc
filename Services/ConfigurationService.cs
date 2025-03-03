@@ -32,9 +32,9 @@ namespace DocumentProcessor.Services
                 if (!string.IsNullOrEmpty(configuration["BASEURL"]))
                     adoConfig.BaseUrl = configuration["BASEURL"];
                 if (!string.IsNullOrEmpty(configuration["PROJECTNAME"]))
-                    adoConfig.BaseUrl = configuration["PROJECTNAME"];
+                    adoConfig.ProjectName = configuration["PROJECTNAME"];
                 if (!string.IsNullOrEmpty(configuration["FQDOCUMENTFIELDNAME"]))
-                    adoConfig.BaseUrl = configuration["FQDOCUMENTFIELDNAME"];
+                    adoConfig.FQDocumentFieldName = configuration["FQDOCUMENTFIELDNAME"];
 
 
                 return adoConfig;
