@@ -2,11 +2,14 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
+using DocumentProcessor.Models.TagProcessors;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 
 namespace DocumentProcessor.Services
@@ -25,8 +28,6 @@ namespace DocumentProcessor.Services
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _tagProcessors = new Dictionary<string, ITagProcessor>();
-
-            _tagProcessors.Add("AcronymTable", new AcronymTableTagProcessor(options.AcronymProcessor, options.HtmlConverter));
 
             if (options.AzureDevOpsService != null)
             {
@@ -83,7 +84,7 @@ namespace DocumentProcessor.Services
                         Console.WriteLine("Inserting table into document...");
                         body.InsertBefore(processed.TableElement, currentParagraph);
                         currentParagraph.Remove();
-                        Console.WriteLine("Table inserted successfully");
+                        Console.WriteLine($"Table inserted successfully with OuterXml:\n{processed.TableElement.OuterXml}");
                     }
                     catch (Exception ex)
                     {
@@ -133,7 +134,6 @@ namespace DocumentProcessor.Services
                             parts.Add((currentText.ToString().Trim(), "text"));
                             currentText.Clear();
                         }
-                        continue;
                     }
                     else if (trimmedLine == TABLE_END_MARKER)
                     {
@@ -142,7 +142,6 @@ namespace DocumentProcessor.Services
                             parts.Add((currentText.ToString().Trim(), "table"));
                             currentText.Clear();
                         }
-                        continue;
                     }
                     else if (trimmedLine == LIST_START_MARKER)
                     {
@@ -151,7 +150,6 @@ namespace DocumentProcessor.Services
                             parts.Add((currentText.ToString().Trim(), "text"));
                             currentText.Clear();
                         }
-                        continue;
                     }
                     else if (trimmedLine == LIST_END_MARKER)
                     {
@@ -160,10 +158,11 @@ namespace DocumentProcessor.Services
                             parts.Add((currentText.ToString().Trim(), "list"));
                             currentText.Clear();
                         }
-                        continue;
                     }
-
-                    currentText.AppendLine(line);
+                    else
+                    {
+                        currentText.AppendLine(line);
+                    }
                 }
 
                 if (currentText.Length > 0)
@@ -187,14 +186,16 @@ namespace DocumentProcessor.Services
                         try
                         {
                             var tableXml = part.Content;
+                            Console.WriteLine($"Raw table XML:\n{tableXml}");
+
+                            // Add namespace if missing
                             if (!tableXml.Contains("xmlns:w="))
                             {
                                 tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                                Console.WriteLine($"Added namespace. Updated XML:\n{tableXml}");
                             }
 
-                            var xElement = XElement.Parse(tableXml);
-                            Console.WriteLine($"Table XML parsed successfully. Structure: {xElement.Name}");
-
+                            // Create new table with table properties
                             var table = new Table();
                             table.AppendChild(new TableProperties(
                                 new TableStyle { Val = "TableGrid" },
@@ -208,61 +209,12 @@ namespace DocumentProcessor.Services
                                 )
                             ));
 
-                            foreach (var rowElement in xElement.Elements())
-                            {
-                                if (rowElement.Name.LocalName != "tr") continue;
+                            // Parse and inject the table content
+                            table.InnerXml = tableXml;
 
-                                var row = new TableRow();
-                                foreach (var cellElement in rowElement.Elements())
-                                {
-                                    if (cellElement.Name.LocalName != "tc") continue;
-
-                                    var cell = new TableCell();
-                                    foreach (var paraElement in cellElement.Elements())
-                                    {
-                                        if (paraElement.Name.LocalName != "p") continue;
-
-                                        var para = new Paragraph();
-                                        foreach (var runElement in paraElement.Elements())
-                                        {
-                                            if (runElement.Name.LocalName != "r") continue;
-
-                                            var run = new Run();
-                                            var textElements = runElement.Elements().Where(e => e.Name.LocalName == "t");
-                                            foreach (var textElement in textElements)
-                                            {
-                                                run.AppendChild(new Text(textElement.Value));
-                                            }
-                                            if (run.HasChildren)
-                                            {
-                                                para.AppendChild(run);
-                                            }
-                                        }
-                                        if (para.HasChildren)
-                                        {
-                                            cell.AppendChild(para);
-                                        }
-                                    }
-                                    if (cell.HasChildren)
-                                    {
-                                        row.AppendChild(cell);
-                                    }
-                                }
-                                if (row.HasChildren)
-                                {
-                                    table.AppendChild(row);
-                                }
-                            }
-
-                            if (table.HasChildren)
-                            {
-                                body.InsertBefore(table, currentParagraph);
-                                Console.WriteLine("Table inserted successfully");
-                            }
-                            else
-                            {
-                                Console.WriteLine("Warning: Table had no valid content to insert");
-                            }
+                            // Insert the table before removing the current paragraph
+                            body.InsertBefore(table, currentParagraph);
+                            Console.WriteLine($"Table inserted successfully. Table XML:\n{table.OuterXml}");
                         }
                         catch (Exception ex)
                         {
@@ -274,10 +226,10 @@ namespace DocumentProcessor.Services
                     else if (part.Type == "list")
                     {
                         Console.WriteLine("Processing embedded list");
-                        var lines = part.Content.Split('\n');
-                        foreach (var line in lines)
+                        var listLines = part.Content.Split('\n');
+                        foreach (var listLine in listLines)
                         {
-                            if (!string.IsNullOrWhiteSpace(line))
+                            if (!string.IsNullOrWhiteSpace(listLine))
                             {
                                 try
                                 {
@@ -288,13 +240,13 @@ namespace DocumentProcessor.Services
                                             new NumberingId { Val = 1 }
                                         )
                                     );
-                                    newParagraph.AppendChild(new Run(new Text(line.Trim())));
+                                    newParagraph.AppendChild(new Run(new Text(listLine.Trim())));
                                     body.InsertBefore(newParagraph, currentParagraph);
                                 }
                                 catch (Exception ex)
                                 {
                                     Console.WriteLine($"Error creating list paragraph: {ex.Message}");
-                                    Console.WriteLine($"Line content: {line}");
+                                    Console.WriteLine($"Line content: {listLine}");
                                     throw;
                                 }
                             }
@@ -330,9 +282,9 @@ namespace DocumentProcessor.Services
 
             foreach (var tagProcessor in _tagProcessors)
             {
-                var matches = System.Text.RegularExpressions.Regex.Matches(text, @"\[\[" + tagProcessor.Key + @":([^\]]+)\]\]");
+                var matches = Regex.Matches(text, @"\[\[" + tagProcessor.Key + @":([^\]]+)\]\]");
 
-                foreach (System.Text.RegularExpressions.Match match in matches)
+                foreach (Match match in matches)
                 {
                     try
                     {
