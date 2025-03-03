@@ -1,12 +1,13 @@
-using DocumentProcessor.Models;
+﻿using DocumentProcessor.Models;
+using DocumentProcessor.Models.Configuration;
 using DocumentProcessor.Services;
 using DocumentProcessor.Tests;
-using DocumentProcessor.Models.Configuration;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.IO;
 
 namespace DocumentProcessor
 {
@@ -16,6 +17,18 @@ namespace DocumentProcessor
         {
             try
             {
+                try
+                {
+                    Assembly interopWord = Assembly.Load("Microsoft.Office.Interop.Word");
+                    Console.WriteLine("Interop loaded successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Interop failed to load: {ex.Message}");
+                }
+
+
+
                 if (args.Length == 1 && args[0] == "--create-test")
                 {
                     string testFilePath = "test_document.docx";
