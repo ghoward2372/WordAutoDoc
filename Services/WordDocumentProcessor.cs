@@ -9,7 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.Xml;
+using DocumentFormat.OpenXml;
 
 namespace DocumentProcessor.Services
 {
@@ -17,6 +17,9 @@ namespace DocumentProcessor.Services
     {
         private readonly DocumentProcessingOptions _options;
         private readonly Dictionary<string, ITagProcessor> _tagProcessors;
+        private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        private const string TABLE_START_MARKER = "<TABLE_START>";
+        private const string TABLE_END_MARKER = "<TABLE_END>";
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -38,42 +41,26 @@ namespace DocumentProcessor.Services
         {
             try
             {
-                Console.WriteLine("\n=== Starting Document Processing ===");
-                Console.WriteLine($"Source document: {_options.SourcePath}");
-                Console.WriteLine($"Output document: {_options.OutputPath}");
+                Console.WriteLine($"\n=== Starting Document Processing ===");
+                Console.WriteLine($"Source: {_options.SourcePath}");
+                Console.WriteLine($"Output: {_options.OutputPath}");
 
                 File.Copy(_options.SourcePath, _options.OutputPath, true);
-                Console.WriteLine("Created output document successfully");
 
-                using (WordprocessingDocument targetDoc = WordprocessingDocument.Open(_options.OutputPath, true))
+                using (var doc = WordprocessingDocument.Open(_options.OutputPath, true))
                 {
-                    var mainPart = targetDoc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
+                    var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
                     var body = mainPart.Document?.Body ?? throw new InvalidOperationException("Document body is missing");
 
                     await ProcessDocumentContentAsync(body);
                     mainPart.Document.Save();
-                    Console.WriteLine("\n=== Document Processing Completed ===");
                 }
 
-                // Verify the file exists and has content after processing
-                if (File.Exists(_options.OutputPath))
-                {
-                    var fileInfo = new FileInfo(_options.OutputPath);
-                    Console.WriteLine($"\n=== Output File Details ===");
-                    Console.WriteLine($"File path: {_options.OutputPath}");
-                    Console.WriteLine($"File size: {fileInfo.Length} bytes");
-                    Console.WriteLine($"Last modified: {fileInfo.LastWriteTime}");
-                }
-                else
-                {
-                    throw new FileNotFoundException("Output file not found after processing", _options.OutputPath);
-                }
+                Console.WriteLine("\n=== Document Processing Complete ===");
             }
             catch (Exception ex)
             {
-                Console.WriteLine("\n=== Document Processing Failed ===");
-                Console.WriteLine($"Error: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                Console.WriteLine($"Error processing document: {ex.Message}");
                 throw;
             }
         }
@@ -81,59 +68,119 @@ namespace DocumentProcessor.Services
         private async Task ProcessDocumentContentAsync(Body body)
         {
             var paragraphsToProcess = body.Elements<Paragraph>().ToList();
-            Console.WriteLine($"\n=== Processing {paragraphsToProcess.Count} Paragraphs ===");
+            Console.WriteLine($"Processing {paragraphsToProcess.Count} paragraphs");
 
             foreach (var paragraph in paragraphsToProcess)
             {
-                string text = paragraph.InnerText;
-                Console.WriteLine($"\nProcessing paragraph: {text}");
+                var text = paragraph.InnerText;
+                Console.WriteLine($"\nProcessing paragraph text: {text}");
 
-                var result = await ProcessTextAsync(text);
+                var processed = await ProcessTextAsync(text);
 
-                if (result.IsTable)
+                if (processed.IsTable && processed.TableElement != null)
                 {
-                    Console.WriteLine("\n=== Table Processing ===");
                     try
                     {
-                        var table = result.TableElement!;
-                        var rowCount = table.Elements<TableRow>().Count();
-                        var columnCount = table.Elements<TableRow>().FirstOrDefault()?.Elements<TableCell>().Count() ?? 0;
+                        var table = processed.TableElement;
+                        Console.WriteLine("Inserting table into document...");
 
-                        Console.WriteLine($"Table structure details:");
-                        Console.WriteLine($"- Total rows: {rowCount}");
-                        Console.WriteLine($"- Columns per row: {columnCount}");
+                        // Add namespace to table if missing
+                        if (!table.OuterXml.Contains("xmlns:w="))
+                        {
+                            Console.WriteLine("Adding namespace to table XML");
+                            var newTable = new Table();
+                            newTable.InnerXml = table.OuterXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                            table = newTable;
+                        }
 
-                        var tableProps = table.GetFirstChild<TableProperties>();
-                        Console.WriteLine("Table formatting:");
-                        Console.WriteLine($"- Border size: {tableProps?.TableBorders?.TopBorder?.Size ?? 0}pt");
-                        Console.WriteLine($"- Table width: {tableProps?.TableWidth?.Width ?? "auto"}");
-                        Console.WriteLine($"- Table look: {tableProps?.TableLook?.Val ?? "default"}");
-
+                        // Insert table and remove original paragraph
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
-                        Console.WriteLine("Table successfully inserted into document");
+                        Console.WriteLine("Table inserted successfully");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error during table insertion: {ex.Message}");
-                        Console.WriteLine($"Table XML structure: {result.TableElement!.OuterXml}");
+                        Console.WriteLine($"Error inserting table: {ex.Message}");
                         throw;
                     }
                 }
-                else if (text != result.ProcessedText)
+                else if (text != processed.ProcessedText)
                 {
-                    Console.WriteLine("Updating paragraph with processed text");
-                    paragraph.RemoveAllChildren();
-                    paragraph.AppendChild(new Run(new Text(result.ProcessedText)));
+                    // Check if this is content from a WorkItem tag that might contain tables
+                    if (processed.ProcessedText.Contains(TABLE_START_MARKER))
+                    {
+                        InsertMixedContent(processed.ProcessedText, paragraph);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Updating paragraph text");
+                        paragraph.RemoveAllChildren();
+                        paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
+                    }
                 }
             }
+        }
 
-            Console.WriteLine("\n=== Document Processing Complete ===");
+        private void InsertMixedContent(string content, Paragraph paragraph)
+        {
+            try
+            {
+                Console.WriteLine("Inserting mixed content with tables...");
+
+                // Split content by table markers
+                var parts = content.Split(new[] { TABLE_START_MARKER, TABLE_END_MARKER },
+                                       StringSplitOptions.RemoveEmptyEntries);
+
+                // Keep track of our current position in the document
+                OpenXmlElement currentElement = paragraph;
+
+                foreach (var part in parts)
+                {
+                    var trimmedPart = part.Trim();
+                    if (string.IsNullOrEmpty(trimmedPart)) continue;
+
+                    if (trimmedPart.StartsWith("<w:tbl"))
+                    {
+                        // Handle table
+                        Console.WriteLine("Processing embedded table");
+                        var table = new Table();
+                        var tableXml = trimmedPart;
+                        if (!tableXml.Contains("xmlns:w="))
+                        {
+                            tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                        }
+                        table.InnerXml = tableXml;
+                        currentElement.InsertAfterSelf(table);
+                        currentElement = table;
+                        Console.WriteLine("Table inserted successfully");
+                    }
+                    else
+                    {
+                        // Handle text
+                        Console.WriteLine("Processing text content");
+                        var newParagraph = new Paragraph(new Run(new Text(trimmedPart)));
+                        currentElement.InsertAfterSelf(newParagraph);
+                        currentElement = newParagraph;
+                        Console.WriteLine("Text paragraph inserted");
+                    }
+                }
+
+                // Remove original paragraph since we've replaced it with new content
+                if (paragraph.Parent != null)
+                {
+                    paragraph.Remove();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing mixed content: {ex.Message}");
+                throw;
+            }
         }
 
         private async Task<ProcessingResult> ProcessTextAsync(string text)
         {
-            var result = new ProcessingResult { ProcessedText = text };
+            var result = ProcessingResult.FromText(text);
 
             foreach (var tagProcessor in _tagProcessors)
             {
@@ -148,193 +195,27 @@ namespace DocumentProcessor.Services
                         var tagContent = match.Groups[1].Value;
                         var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
 
-                        if (IsTableXml(processedContent))
+                        // If the tag processor returned a table, use it directly
+                        if (processedContent.IsTable && processedContent.TableElement != null)
                         {
-                            Console.WriteLine("Table content detected, creating Word table...");
-                            result.IsTable = true;
-                            result.TableElement = CreateTableFromXml(processedContent);
-                            return result;
+                            Console.WriteLine("Table found in processed content");
+                            return processedContent;
                         }
 
-                        text = text.Replace(match.Value, processedContent);
-                        Console.WriteLine($"Tag processed successfully");
+                        // Otherwise, replace the tag with the processed text
+                        text = text.Replace(match.Value, processedContent.ProcessedText);
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
-                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag]");
+                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag: {ex.Message}]");
                     }
                 }
             }
 
+            // Process acronyms only for non-table content
             result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
             return result;
-        }
-
-        private bool IsTableXml(string content)
-        {
-            return content?.StartsWith("<w:tbl") ?? false;
-        }
-
-
-        private Table CreateTableFromXml(string tableXml)
-        {
-            try
-            {
-                Console.WriteLine("\n=== Creating Word Table ===");
-                var table = new Table();
-
-                // Add enhanced table properties
-                var props = new TableProperties(
-                    new TableBorders(
-                        new TopBorder { Val = BorderValues.Single, Size = 12 },
-                        new BottomBorder { Val = BorderValues.Single, Size = 12 },
-                        new LeftBorder { Val = BorderValues.Single, Size = 12 },
-                        new RightBorder { Val = BorderValues.Single, Size = 12 },
-                        new InsideHorizontalBorder { Val = BorderValues.Single, Size = 6 },
-                        new InsideVerticalBorder { Val = BorderValues.Single, Size = 6 }
-                    ),
-                    new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
-                    new TableLook { Val = "04A0" }
-                );
-                table.AppendChild(props);
-
-                Console.WriteLine("Parsing table XML content...");
-                using (var stringReader = new StringReader(tableXml))
-                using (var xmlReader = XmlReader.Create(stringReader))
-                {
-                    bool isFirstRow = true;
-                    TableRow row = null;
-
-                    while (xmlReader.Read())
-                    {
-                        if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tr")
-                        {
-                            row = new TableRow();
-
-                            if (isFirstRow)
-                            {
-                                row.AppendChild(new TableRowProperties(
-                                    new TableRowHeight { Val = 400 },
-                                    new TableHeader()
-                                ));
-                            }
-                        }
-                        else if (xmlReader.NodeType == XmlNodeType.Element && xmlReader.LocalName == "tc")
-                        {
-                            if (row == null)
-                                continue; // Ensure row exists before adding cells
-
-                            var cell = new TableCell();
-                            var cellProps = new TableCellProperties(
-                                new TableCellWidth { Type = TableWidthUnitValues.Auto },
-                                new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }
-                            );
-
-                            if (isFirstRow)
-                            {
-                                cellProps.AppendChild(new Shading { Fill = "EEEEEE" });
-                            }
-
-                            cell.AppendChild(cellProps);
-
-                            // Read text content properly from within the <tc> tag
-                            string cellContent = "";
-                            while (xmlReader.Read())
-                            {
-                                if (xmlReader.NodeType == XmlNodeType.Text)
-                                {
-                                    cellContent += xmlReader.Value.Trim();
-                                }
-                                else if (xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tc")
-                                {
-                                    break; // Stop reading once we reach the end of the <tc> tag
-                                }
-                            }
-
-                            Console.WriteLine($"Adding cell content: {cellContent}");
-
-                            var paragraph = new Paragraph(
-                                new ParagraphProperties(
-                                    new Justification { Val = JustificationValues.Center },
-                                    new SpacingBetweenLines { Before = "0", After = "0" }
-                                ),
-                                new Run(
-                                    isFirstRow ? new RunProperties(new Bold()) : null,
-                                    new Text(cellContent)
-                                )
-                            );
-
-                            cell.AppendChild(paragraph);
-                            row.AppendChild(cell);
-                        }
-                        else if (xmlReader.NodeType == XmlNodeType.EndElement && xmlReader.LocalName == "tr")
-                        {
-                            if (row != null)
-                            {
-                                table.AppendChild(row);
-                                isFirstRow = false;
-                            }
-                        }
-                    }
-                }
-
-                Console.WriteLine("Table created successfully");
-                return table;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error creating table: {ex.Message}");
-                Console.WriteLine($"Table XML content: {tableXml}");
-                throw new Exception($"Error creating table from XML: {ex.Message}", ex);
-            }
-        }
-
-
-        public string ExtractTextFromXml(string xml)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(xml))
-                    return string.Empty;
-
-                Console.WriteLine($"Processing XML content: {xml}");
-
-                // First pass: Extract text specifically from Word text tags
-                var matches = Regex.Matches(xml, @"<w:t(?:\s[^>]*)?>(.*?)</w:t>");
-                if (matches.Count > 0)
-                {
-                    // Join text elements with a single space and normalize whitespace
-                    string textContent = string.Join(" ",
-                        matches.Cast<Match>()
-                               .Select(m => m.Groups[1].Value.Trim())
-                               .Where(s => !string.IsNullOrWhiteSpace(s)));
-                    Console.WriteLine($"Extracted Word text content: {textContent}");
-                    return textContent;
-                }
-
-                // Fallback for non-Word XML: Remove all XML tags recursively
-                string withoutTags = xml;
-                string previousResult;
-                do
-                {
-                    previousResult = withoutTags;
-                    withoutTags = Regex.Replace(previousResult, @"<[^>]+>", string.Empty);
-                    Console.WriteLine($"Cleaning pass result: {withoutTags}");
-                } while (withoutTags != previousResult);
-
-                // Clean up the result
-                string decoded = System.Net.WebUtility.HtmlDecode(withoutTags);
-                string normalized = Regex.Replace(decoded, @"\s+", " ").Trim();
-
-                Console.WriteLine($"Final extracted text: {normalized}");
-                return normalized;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error extracting text from XML: {ex.Message}");
-                return string.Empty;
-            }
         }
     }
 }

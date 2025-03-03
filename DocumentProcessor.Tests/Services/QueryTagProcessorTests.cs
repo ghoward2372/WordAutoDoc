@@ -1,4 +1,5 @@
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocumentProcessor.Models;
 using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Services;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
@@ -79,13 +80,6 @@ namespace DocumentProcessor.Tests.Services
                     It.IsAny<IEnumerable<string>>()))
                 .ReturnsAsync(workItems);
 
-            var expectedTableData = new[]
-            {
-                new[] { "ID", "Title" },
-                new[] { "1", "First Item" },
-                new[] { "2", "Second Item" }
-            };
-
             var mockTable = new Table();
             _mockHtmlConverter.Setup(x => x.CreateTable(It.Is<string[][]>(
                 data => data.Length == 3 && // Header + 2 data rows
@@ -99,6 +93,10 @@ namespace DocumentProcessor.Tests.Services
 
             // Assert
             Assert.NotNull(result);
+            Assert.True(result.IsTable);
+            Assert.NotNull(result.TableElement);
+            Assert.Same(mockTable, result.TableElement);
+
             _mockAzureDevOpsService.Verify(x => x.GetQueryAsync(queryId), Times.Once);
             _mockAzureDevOpsService.Verify(x => x.ExecuteQueryAsync(queryId), Times.Once);
             _mockAzureDevOpsService.Verify(
@@ -108,12 +106,6 @@ namespace DocumentProcessor.Tests.Services
                     It.Is<IEnumerable<string>>(fields =>
                         fields.Count() == 2 &&
                         fields.ToList().All(f => new[] { "System.Id", "System.Title" }.Contains(f)))),
-                Times.Once);
-            _mockHtmlConverter.Verify(x => x.CreateTable(It.Is<string[][]>(
-                data => data.Length == 3 && // Header + 2 data rows
-                       data[0].SequenceEqual(new[] { "ID", "Title" }) &&
-                       data[1].SequenceEqual(new[] { "1", "First Item" }) &&
-                       data[2].SequenceEqual(new[] { "2", "Second Item" }))),
                 Times.Once);
         }
 
@@ -133,7 +125,9 @@ namespace DocumentProcessor.Tests.Services
             var result = await _processor.ProcessTagAsync(queryId);
 
             // Assert
-            Assert.Equal("No columns defined in query.", result);
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Equal("No columns defined in query.", result.ProcessedText);
             _mockAzureDevOpsService.Verify(x => x.ExecuteQueryAsync(queryId), Times.Never);
             _mockAzureDevOpsService.Verify(x => x.GetWorkItemsAsync(It.IsAny<IEnumerable<int>>(), It.IsAny<IEnumerable<string>>()), Times.Never);
         }
