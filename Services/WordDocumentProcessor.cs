@@ -125,6 +125,8 @@ namespace DocumentProcessor.Services
         {
             try
             {
+                Console.WriteLine("Inserting mixed content with tables...");
+
                 // Split content by table markers
                 var parts = content.Split(new[] { TABLE_START_MARKER, TABLE_END_MARKER },
                                        StringSplitOptions.RemoveEmptyEntries);
@@ -150,6 +152,7 @@ namespace DocumentProcessor.Services
                         table.InnerXml = tableXml;
                         currentElement.InsertAfterSelf(table);
                         currentElement = table;
+                        Console.WriteLine("Table inserted successfully");
                     }
                     else
                     {
@@ -158,11 +161,12 @@ namespace DocumentProcessor.Services
                         var newParagraph = new Paragraph(new Run(new Text(trimmedPart)));
                         currentElement.InsertAfterSelf(newParagraph);
                         currentElement = newParagraph;
+                        Console.WriteLine("Text paragraph inserted");
                     }
                 }
 
-                // Remove original paragraph if it's now empty
-                if (paragraph.ChildElements.Count == 0)
+                // Remove original paragraph since we've replaced it with new content
+                if (paragraph.Parent != null)
                 {
                     paragraph.Remove();
                 }

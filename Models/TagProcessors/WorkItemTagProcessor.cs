@@ -13,14 +13,19 @@ namespace DocumentProcessor.Models.TagProcessors
     {
         private readonly IAzureDevOpsService _azureDevOpsService;
         private readonly IHtmlToWordConverter _htmlConverter;
-        private readonly TextBlockProcessor _textBlockProcessor;
+        private readonly ITextBlockProcessor _textBlockProcessor;
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        private const string TABLE_START_MARKER = "<TABLE_START>";
+        private const string TABLE_END_MARKER = "<TABLE_END>";
 
-        public WorkItemTagProcessor(IAzureDevOpsService azureDevOpsService, IHtmlToWordConverter htmlConverter)
+        public WorkItemTagProcessor(
+            IAzureDevOpsService azureDevOpsService,
+            IHtmlToWordConverter htmlConverter,
+            ITextBlockProcessor? textBlockProcessor = null)
         {
             _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
             _htmlConverter = htmlConverter ?? throw new ArgumentNullException(nameof(htmlConverter));
-            _textBlockProcessor = new TextBlockProcessor();
+            _textBlockProcessor = textBlockProcessor ?? new TextBlockProcessor();
         }
 
         public Task<ProcessingResult> ProcessTagAsync(string tagContent)
@@ -70,9 +75,9 @@ namespace DocumentProcessor.Models.TagProcessors
                             }
 
                             // Add special markers around the table XML for later processing
-                            processedContent.AppendLine("<TABLE_START>");
+                            processedContent.AppendLine(TABLE_START_MARKER);
                             processedContent.AppendLine(tableXml);
-                            processedContent.AppendLine("<TABLE_END>");
+                            processedContent.AppendLine(TABLE_END_MARKER);
                         }
                     }
                     else

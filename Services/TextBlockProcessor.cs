@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace DocumentProcessor.Services
 {
-    public class TextBlockProcessor
+    public class TextBlockProcessor : ITextBlockProcessor
     {
         public enum BlockType
         {

@@ -1,12 +1,13 @@
+using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
 using DocumentProcessor.Models.TagProcessors;
 using DocumentProcessor.Services;
+using DocumentProcessor.Models.Configuration;
+using Moq;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Xunit;
-using Moq;
-using System.Collections.Generic;
-using DocumentProcessor.Models.Configuration;
 
 namespace DocumentProcessor.Tests.TagProcessors
 {
@@ -14,25 +15,26 @@ namespace DocumentProcessor.Tests.TagProcessors
     {
         private readonly Mock<IAzureDevOpsService> _mockAzureDevOpsService;
         private readonly Mock<IHtmlToWordConverter> _mockHtmlConverter;
+        private readonly Mock<ITextBlockProcessor> _mockTextBlockProcessor;
         private readonly WorkItemTagProcessor _processor;
         private readonly DocumentProcessingOptions _options;
         private const string TEST_FQ_FIELD = "System.Description";
-        private readonly AcronymConfiguration _acronymConfig;
+        private const string WORD_ML_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
         public WorkItemTagProcessorTests()
         {
             _mockAzureDevOpsService = new Mock<IAzureDevOpsService>();
             _mockHtmlConverter = new Mock<IHtmlToWordConverter>();
-            _processor = new WorkItemTagProcessor(_mockAzureDevOpsService.Object, _mockHtmlConverter.Object);
+            _mockTextBlockProcessor = new Mock<ITextBlockProcessor>();
+            _processor = new WorkItemTagProcessor(
+                _mockAzureDevOpsService.Object,
+                _mockHtmlConverter.Object,
+                _mockTextBlockProcessor.Object);
 
-            _acronymConfig = new AcronymConfiguration
+            var acronymConfig = new AcronymConfiguration
             {
-                KnownAcronyms = new Dictionary<string, string>
-                {
-                    { "API", "Application Programming Interface" },
-                    { "GUI", "Graphical User Interface" }
-                },
-                IgnoredAcronyms = new HashSet<string> { "ID", "XML" }
+                KnownAcronyms = new Dictionary<string, string>(),
+                IgnoredAcronyms = new HashSet<string>()
             };
 
             _options = new DocumentProcessingOptions
@@ -40,27 +42,67 @@ namespace DocumentProcessor.Tests.TagProcessors
                 SourcePath = "test.docx",
                 OutputPath = "output.docx",
                 AzureDevOpsService = _mockAzureDevOpsService.Object,
-                AcronymProcessor = new AcronymProcessor(_acronymConfig),
                 HtmlConverter = _mockHtmlConverter.Object,
+                AcronymProcessor = new AcronymProcessor(acronymConfig),
                 FQDocumentField = TEST_FQ_FIELD
             };
         }
 
         [Fact]
-        public async Task ProcessTagAsync_ValidWorkItemId_ReturnsProcessedContent()
+        public async Task ProcessTagAsync_WithMixedContent_HandlesTableAndTextCorrectly()
         {
             // Arrange
             const int workItemId = 1234;
-            const string rawContent = "<p>Test content</p>";
-            const string processedContent = "Test content";
+            var mixedContent = @"
+                Text before table
+                <table>
+                    <tr><th>Header 1</th><th>Header 2</th></tr>
+                    <tr><td>Cell 1</td><td>Cell 2</td></tr>
+                </table>
+                Text after table";
+
+            // Set up text blocks for segmentation
+            var textBlocks = new List<TextBlockProcessor.TextBlock>
+            {
+                new TextBlockProcessor.TextBlock
+                {
+                    Type = TextBlockProcessor.BlockType.Text,
+                    Content = "Text before table"
+                },
+                new TextBlockProcessor.TextBlock
+                {
+                    Type = TextBlockProcessor.BlockType.Table,
+                    Content = @"<table>
+                        <tr><th>Header 1</th><th>Header 2</th></tr>
+                        <tr><td>Cell 1</td><td>Cell 2</td></tr>
+                    </table>"
+                },
+                new TextBlockProcessor.TextBlock
+                {
+                    Type = TextBlockProcessor.BlockType.Text,
+                    Content = "Text after table"
+                }
+            };
+
+            _mockTextBlockProcessor
+                .Setup(x => x.SegmentText(mixedContent))
+                .Returns(textBlocks);
+
+            var mockTable = new Table();
+            var tableXml = $@"<w:tbl xmlns:w=""{WORD_ML_NAMESPACE}""><w:tblPr><w:tblStyle w:val=""TableGrid""/></w:tblPr><w:tr><w:tc><w:p><w:r><w:t>Header 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Header 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Cell 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+            mockTable.OuterXml = tableXml;
 
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
-                .ReturnsAsync(rawContent);
+                .ReturnsAsync(mixedContent);
 
             _mockHtmlConverter
-                .Setup(x => x.ConvertHtmlToWordFormat(rawContent))
-                .Returns(processedContent);
+                .Setup(x => x.ConvertHtmlToWordFormat(It.Is<string>(s => !s.Contains("<table>"))))
+                .Returns<string>(text => "Converted: " + text.Trim());
+
+            _mockHtmlConverter
+                .Setup(x => x.CreateTable(It.IsAny<string[][]>()))
+                .Returns(mockTable);
 
             // Act
             var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
@@ -68,9 +110,15 @@ namespace DocumentProcessor.Tests.TagProcessors
             // Assert
             Assert.NotNull(result);
             Assert.False(result.IsTable);
-            Assert.Equal(processedContent, result.ProcessedText);
+            Assert.Contains("<TABLE_START>", result.ProcessedText);
+            Assert.Contains("<TABLE_END>", result.ProcessedText);
+            Assert.Contains("Converted: Text before table", result.ProcessedText);
+            Assert.Contains("Converted: Text after table", result.ProcessedText);
+            Assert.Contains(tableXml.Replace(" ", ""), result.ProcessedText.Replace(" ", ""));
+
             _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD), Times.Once);
-            _mockHtmlConverter.Verify(x => x.ConvertHtmlToWordFormat(rawContent), Times.Once);
+            _mockHtmlConverter.Verify(x => x.CreateTable(It.IsAny<string[][]>()), Times.Once);
+            _mockTextBlockProcessor.Verify(x => x.SegmentText(mixedContent), Times.Once);
         }
 
         [Fact]
@@ -85,7 +133,7 @@ namespace DocumentProcessor.Tests.TagProcessors
             // Assert
             Assert.NotNull(result);
             Assert.False(result.IsTable);
-            Assert.Contains("Invalid work item ID", result.ProcessedText);
+            Assert.Contains("[Invalid work item ID", result.ProcessedText);
         }
 
         [Fact]
@@ -96,7 +144,7 @@ namespace DocumentProcessor.Tests.TagProcessors
 
             _mockAzureDevOpsService
                 .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
-                .ReturnsAsync((string?)null); //Explicitly returning null
+                .ReturnsAsync((string?)null);
 
             // Act
             var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
@@ -104,7 +152,7 @@ namespace DocumentProcessor.Tests.TagProcessors
             // Assert
             Assert.NotNull(result);
             Assert.False(result.IsTable);
-            Assert.Equal(string.Empty, result.ProcessedText);
+            Assert.Contains("[Work Item not found or empty]", result.ProcessedText);
         }
     }
 }
