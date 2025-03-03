@@ -32,36 +32,23 @@ namespace DocumentProcessor.Models.TagProcessors
         {
             if (!int.TryParse(tagContent, out int workItemId))
             {
-                return ProcessingResult.FromText($"Invalid work item ID: {tagContent}");
+                return ProcessingResult.FromText($"[Invalid work item ID: {tagContent}]");
             }
 
             try
             {
                 var documentText = await _azureDevOpsService.GetWorkItemDocumentTextAsync(workItemId, options?.FQDocumentField ?? string.Empty);
                 if (string.IsNullOrEmpty(documentText))
-                    return ProcessingResult.FromText(string.Empty);
+                    return ProcessingResult.FromText("[Work Item not found or empty]");
 
                 Console.WriteLine($"\n=== Processing Work Item {workItemId} ===");
                 Console.WriteLine($"Raw document text:\n{documentText}");
 
-                // Segment the text into blocks
+                // Process the content by blocks
+                var processedContent = new StringBuilder();
                 var blocks = _textBlockProcessor.SegmentText(documentText);
                 Console.WriteLine($"Text segmented into {blocks.Count} blocks");
 
-                // If we only have one block and it's a table, convert it directly to a table
-                if (blocks.Count == 1 && blocks[0].Type == TextBlockProcessor.BlockType.Table)
-                {
-                    Console.WriteLine("Processing single table block");
-                    var tableData = ExtractTableData(blocks[0].Content);
-                    if (tableData.Length > 0)
-                    {
-                        var table = _htmlConverter.CreateTable(tableData);
-                        return ProcessingResult.FromTable(table);
-                    }
-                }
-
-                // Process multiple blocks
-                var processedContent = new StringBuilder();
                 foreach (var block in blocks)
                 {
                     Console.WriteLine($"\nProcessing block type: {block.Type}");
@@ -76,22 +63,22 @@ namespace DocumentProcessor.Models.TagProcessors
                             var table = _htmlConverter.CreateTable(tableData);
                             var tableXml = table.OuterXml;
 
-                            // Always add namespace for table XML
+                            // Ensure table XML has the correct namespace
                             if (!tableXml.Contains("xmlns:w="))
                             {
                                 tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                             }
 
-                            Console.WriteLine($"Generated table XML:\n{tableXml}");
-                            processedContent.Append(tableXml);
+                            // Add special markers around the table XML for later processing
+                            processedContent.AppendLine("<TABLE_START>");
+                            processedContent.AppendLine(tableXml);
+                            processedContent.AppendLine("<TABLE_END>");
                         }
                     }
                     else
                     {
-                        Console.WriteLine("Converting text block to Word format...");
                         var convertedText = _htmlConverter.ConvertHtmlToWordFormat(block.Content);
-                        Console.WriteLine($"Converted text block:\n{convertedText}");
-                        processedContent.Append(convertedText);
+                        processedContent.AppendLine(convertedText);
                     }
                 }
 
@@ -106,7 +93,7 @@ namespace DocumentProcessor.Models.TagProcessors
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing work item {tagContent}: {ex.Message}");
-                throw;
+                return ProcessingResult.FromText($"[Error processing work item {tagContent}: {ex.Message}]");
             }
         }
 

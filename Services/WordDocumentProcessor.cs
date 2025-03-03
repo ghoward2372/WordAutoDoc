@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using DocumentFormat.OpenXml;
 
 namespace DocumentProcessor.Services
 {
@@ -17,6 +18,8 @@ namespace DocumentProcessor.Services
         private readonly DocumentProcessingOptions _options;
         private readonly Dictionary<string, ITagProcessor> _tagProcessors;
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        private const string TABLE_START_MARKER = "<TABLE_START>";
+        private const string TABLE_END_MARKER = "<TABLE_END>";
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -103,10 +106,71 @@ namespace DocumentProcessor.Services
                 }
                 else if (text != processed.ProcessedText)
                 {
-                    Console.WriteLine("Updating paragraph text");
-                    paragraph.RemoveAllChildren();
-                    paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
+                    // Check if this is content from a WorkItem tag that might contain tables
+                    if (processed.ProcessedText.Contains(TABLE_START_MARKER))
+                    {
+                        InsertMixedContent(processed.ProcessedText, paragraph);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Updating paragraph text");
+                        paragraph.RemoveAllChildren();
+                        paragraph.AppendChild(new Run(new Text(processed.ProcessedText)));
+                    }
                 }
+            }
+        }
+
+        private void InsertMixedContent(string content, Paragraph paragraph)
+        {
+            try
+            {
+                // Split content by table markers
+                var parts = content.Split(new[] { TABLE_START_MARKER, TABLE_END_MARKER },
+                                       StringSplitOptions.RemoveEmptyEntries);
+
+                // Keep track of our current position in the document
+                OpenXmlElement currentElement = paragraph;
+
+                foreach (var part in parts)
+                {
+                    var trimmedPart = part.Trim();
+                    if (string.IsNullOrEmpty(trimmedPart)) continue;
+
+                    if (trimmedPart.StartsWith("<w:tbl"))
+                    {
+                        // Handle table
+                        Console.WriteLine("Processing embedded table");
+                        var table = new Table();
+                        var tableXml = trimmedPart;
+                        if (!tableXml.Contains("xmlns:w="))
+                        {
+                            tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                        }
+                        table.InnerXml = tableXml;
+                        currentElement.InsertAfterSelf(table);
+                        currentElement = table;
+                    }
+                    else
+                    {
+                        // Handle text
+                        Console.WriteLine("Processing text content");
+                        var newParagraph = new Paragraph(new Run(new Text(trimmedPart)));
+                        currentElement.InsertAfterSelf(newParagraph);
+                        currentElement = newParagraph;
+                    }
+                }
+
+                // Remove original paragraph if it's now empty
+                if (paragraph.ChildElements.Count == 0)
+                {
+                    paragraph.Remove();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing mixed content: {ex.Message}");
+                throw;
             }
         }
 
