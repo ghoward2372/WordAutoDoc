@@ -1,3 +1,4 @@
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
@@ -7,9 +8,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using DocumentFormat.OpenXml;
+using System.Xml.Linq;
 
 namespace DocumentProcessor.Services
 {
@@ -20,6 +22,8 @@ namespace DocumentProcessor.Services
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         private const string TABLE_START_MARKER = "<TABLE_START>";
         private const string TABLE_END_MARKER = "<TABLE_END>";
+        private const string LIST_START_MARKER = "<LIST_START>";
+        private const string LIST_END_MARKER = "<LIST_END>";
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -83,17 +87,6 @@ namespace DocumentProcessor.Services
                     {
                         var table = processed.TableElement;
                         Console.WriteLine("Inserting table into document...");
-
-                        // Add namespace to table if missing
-                        if (!table.OuterXml.Contains("xmlns:w="))
-                        {
-                            Console.WriteLine("Adding namespace to table XML");
-                            var newTable = new Table();
-                            newTable.InnerXml = table.OuterXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
-                            table = newTable;
-                        }
-
-                        // Insert table and remove original paragraph
                         paragraph.InsertBeforeSelf(table);
                         paragraph.Remove();
                         Console.WriteLine("Table inserted successfully");
@@ -106,8 +99,8 @@ namespace DocumentProcessor.Services
                 }
                 else if (text != processed.ProcessedText)
                 {
-                    // Check if this is content from a WorkItem tag that might contain tables
-                    if (processed.ProcessedText.Contains(TABLE_START_MARKER))
+                    if (processed.ProcessedText.Contains(TABLE_START_MARKER) || 
+                        processed.ProcessedText.Contains(LIST_START_MARKER))
                     {
                         InsertMixedContent(processed.ProcessedText, paragraph);
                     }
@@ -125,55 +118,137 @@ namespace DocumentProcessor.Services
         {
             try
             {
-                Console.WriteLine("Inserting mixed content with tables...");
+                Console.WriteLine("Inserting mixed content with tables and lists...");
 
-                // Split content by table markers
-                var parts = content.Split(new[] { TABLE_START_MARKER, TABLE_END_MARKER },
-                                       StringSplitOptions.RemoveEmptyEntries);
+                // Split content by markers
+                var parts = new List<(string Content, string Type)>();
+                var currentText = new StringBuilder();
+                var lines = content.Split('\n');
 
-                // Keep track of our current position in the document
+                foreach (var line in lines)
+                {
+                    if (line.Trim() == TABLE_START_MARKER)
+                    {
+                        if (currentText.Length > 0)
+                        {
+                            parts.Add((currentText.ToString().Trim(), "text"));
+                            currentText.Clear();
+                        }
+                        continue;
+                    }
+                    else if (line.Trim() == TABLE_END_MARKER)
+                    {
+                        if (currentText.Length > 0)
+                        {
+                            parts.Add((currentText.ToString().Trim(), "table"));
+                            currentText.Clear();
+                        }
+                        continue;
+                    }
+                    else if (line.Trim() == LIST_START_MARKER)
+                    {
+                        if (currentText.Length > 0)
+                        {
+                            parts.Add((currentText.ToString().Trim(), "text"));
+                            currentText.Clear();
+                        }
+                        continue;
+                    }
+                    else if (line.Trim() == LIST_END_MARKER)
+                    {
+                        if (currentText.Length > 0)
+                        {
+                            parts.Add((currentText.ToString().Trim(), "list"));
+                            currentText.Clear();
+                        }
+                        continue;
+                    }
+
+                    currentText.AppendLine(line);
+                }
+
+                if (currentText.Length > 0)
+                {
+                    parts.Add((currentText.ToString().Trim(), "text"));
+                }
+
                 OpenXmlElement currentElement = paragraph;
 
                 foreach (var part in parts)
                 {
-                    var trimmedPart = part.Trim();
-                    if (string.IsNullOrEmpty(trimmedPart)) continue;
+                    if (string.IsNullOrWhiteSpace(part.Content)) continue;
 
-                    if (trimmedPart.StartsWith("<w:tbl"))
+                    if (part.Type == "table")
                     {
-                        // Handle table
                         Console.WriteLine("Processing embedded table");
-                        var table = new Table();
-                        var tableXml = trimmedPart;
+                        var tableXml = part.Content;
                         if (!tableXml.Contains("xmlns:w="))
                         {
                             tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                         }
-                        table.InnerXml = tableXml;
+
+                        var table = new Table();
+
+                        // Parse table XML and load it into the table element
+                        using (var stringReader = new StringReader(tableXml))
+                        {
+                            var xElement = XElement.Load(stringReader);
+                            using (var reader = xElement.CreateReader())
+                            {
+                                table.Load(reader);
+                            }
+                        }
+
                         currentElement.InsertAfterSelf(table);
                         currentElement = table;
                         Console.WriteLine("Table inserted successfully");
                     }
+                    else if (part.Type == "list")
+                    {
+                        Console.WriteLine("Processing embedded list");
+                        foreach (var listParagraphXml in part.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (!string.IsNullOrWhiteSpace(listParagraphXml))
+                            {
+                                var paragraphXml = listParagraphXml.Trim();
+                                if (!paragraphXml.Contains("xmlns:w="))
+                                {
+                                    paragraphXml = paragraphXml.Replace("<w:p>", $"<w:p xmlns:w=\"{WordMlNamespace}\">");
+                                }
+
+                                // Parse paragraph XML and create new paragraph
+                                var newParagraph = new Paragraph();
+                                using (var stringReader = new StringReader(paragraphXml))
+                                {
+                                    var xElement = XElement.Load(stringReader);
+                                    using (var reader = xElement.CreateReader())
+                                    {
+                                        newParagraph.Load(reader);
+                                    }
+                                }
+
+                                currentElement.InsertAfterSelf(newParagraph);
+                                currentElement = newParagraph;
+                            }
+                        }
+                        Console.WriteLine("List inserted successfully");
+                    }
                     else
                     {
-                        // Handle text
                         Console.WriteLine("Processing text content");
-                        var newParagraph = new Paragraph(new Run(new Text(trimmedPart)));
+                        var newParagraph = new Paragraph(new Run(new Text(part.Content)));
                         currentElement.InsertAfterSelf(newParagraph);
                         currentElement = newParagraph;
                         Console.WriteLine("Text paragraph inserted");
                     }
                 }
 
-                // Remove original paragraph since we've replaced it with new content
-                if (paragraph.Parent != null)
-                {
-                    paragraph.Remove();
-                }
+                paragraph.Remove();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error processing mixed content: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }
@@ -195,14 +270,12 @@ namespace DocumentProcessor.Services
                         var tagContent = match.Groups[1].Value;
                         var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
 
-                        // If the tag processor returned a table, use it directly
                         if (processedContent.IsTable && processedContent.TableElement != null)
                         {
                             Console.WriteLine("Table found in processed content");
                             return processedContent;
                         }
 
-                        // Otherwise, replace the tag with the processed text
                         text = text.Replace(match.Value, processedContent.ProcessedText);
                     }
                     catch (Exception ex)
@@ -213,7 +286,6 @@ namespace DocumentProcessor.Services
                 }
             }
 
-            // Process acronyms only for non-table content
             result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
             return result;
         }

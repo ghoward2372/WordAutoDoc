@@ -116,6 +116,88 @@ Converted: Text after table";
             }
         }
 
+        [Fact]
+        public async Task ProcessDocument_WithMixedContent_HandlesListAndTableCorrectly()
+        {
+            // Arrange
+            var tableXml = $@"<w:tbl xmlns:w=""{WORD_ML_NAMESPACE}""><w:tblPr><w:tblStyle w:val=""TableGrid""/></w:tblPr><w:tr><w:tc><w:p><w:r><w:t>Header 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Header 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Cell 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+            var listXml = $@"<w:p xmlns:w=""{WORD_ML_NAMESPACE}""><w:pPr><w:numPr><w:ilvl w:val=""0""/><w:numId w:val=""1""/></w:numPr></w:pPr><w:r><w:t>First bullet point</w:t></w:r></w:p>";
+
+            var mixedContent = $@"Converted: Text before content
+<TABLE_START>
+{tableXml}
+<TABLE_END>
+Converted: Text between elements
+<LIST_START>
+{listXml}
+<LIST_END>
+Converted: Text after content";
+
+            _mockAzureDevOpsService
+                .Setup(x => x.GetWorkItemDocumentTextAsync(1234, TEST_FQ_FIELD))
+                .ReturnsAsync(mixedContent);
+
+            var options = new DocumentProcessingOptions
+            {
+                SourcePath = _testFilePath,
+                OutputPath = _outputFilePath,
+                AzureDevOpsService = _mockAzureDevOpsService.Object,
+                AcronymProcessor = _acronymProcessor,
+                HtmlConverter = _mockHtmlConverter.Object,
+                FQDocumentField = TEST_FQ_FIELD
+            };
+
+            try
+            {
+                // Act
+                var processor = new WordDocumentProcessor(options);
+                await processor.ProcessDocumentAsync();
+
+                // Assert
+                using (var doc = WordprocessingDocument.Open(_outputFilePath, false))
+                {
+                    var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
+                    var body = mainPart.Document.Body ?? throw new InvalidOperationException("Document body is missing");
+
+                    // Verify table
+                    var tables = body.Descendants<Table>().ToList();
+                    Assert.Single(tables, "Expected exactly one table");
+
+                    // Verify bullet list
+                    var listParagraphs = body.Elements<Paragraph>()
+                        .Where(p => p.ParagraphProperties?.NumberingProperties != null)
+                        .ToList();
+                    Assert.Single(listParagraphs, "Expected exactly one bullet point");
+
+                    // Verify text content
+                    var allParagraphs = body.Elements<Paragraph>().ToList();
+                    Assert.Contains(allParagraphs, p => p.InnerText.Contains("Text before content"));
+                    Assert.Contains(allParagraphs, p => p.InnerText.Contains("Text between elements"));
+                    Assert.Contains(allParagraphs, p => p.InnerText.Contains("Text after content"));
+
+                    // Verify table structure
+                    var table = tables.First();
+                    var rows = table.Elements<TableRow>().ToList();
+                    Assert.Equal(2, rows.Count);
+                    Assert.Contains("Header 1", rows[0].InnerText);
+                    Assert.Contains("Cell 1", rows[1].InnerText);
+
+                    // Verify bullet list structure
+                    var bulletPoint = listParagraphs.First();
+                    Assert.Equal("First bullet point", bulletPoint.InnerText);
+                    Assert.NotNull(bulletPoint.ParagraphProperties?.NumberingProperties?.NumberingId);
+                    Assert.Equal("1", bulletPoint.ParagraphProperties.NumberingProperties.NumberingId.Val);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"\n=== Test Failed ===");
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                throw;
+            }
+        }
+
         public void Dispose()
         {
             try

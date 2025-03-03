@@ -6,5 +6,6 @@ namespace DocumentProcessor.Services
     {
         string ConvertHtmlToWordFormat(string html);
         Table CreateTable(string[][] data);
+        string CreateBulletList(string html);
     }
 }

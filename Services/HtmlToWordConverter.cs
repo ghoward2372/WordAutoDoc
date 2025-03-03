@@ -5,12 +5,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Text;
 
 namespace DocumentProcessor.Services
 {
     public class HtmlToWordConverter : IHtmlToWordConverter
     {
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        private const int BulletListNumId = 1;
 
         public string ConvertHtmlToWordFormat(string html)
         {
@@ -20,27 +22,22 @@ namespace DocumentProcessor.Services
             Console.WriteLine("\n=== Starting HTML Conversion ===");
             Console.WriteLine($"Input text length: {html?.Length ?? 0}");
 
-            if (html.Contains("[[AcronymTable"))
-                return html;
-
             try
             {
+                // Check for bullet lists
+                if (IsBulletListContent(html))
+                {
+                    Console.WriteLine("Converting bullet list content");
+                    return $"<LIST_START>\n{CreateBulletList(html)}\n<LIST_END>";
+                }
+
                 // If the input is just a table, convert it directly
                 if (IsTableContent(html))
                 {
                     Console.WriteLine("Converting isolated table content");
                     var tableData = ExtractTableData(html);
                     var wordTable = CreateTable(tableData);
-                    var tableXml = wordTable.OuterXml;
-
-                    // Ensure proper table XML structure with namespace
-                    if (!tableXml.Contains("xmlns:w="))
-                    {
-                        tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
-                    }
-
-                    Console.WriteLine($"Generated table XML:\n{tableXml}");
-                    return tableXml;
+                    return wordTable.OuterXml;
                 }
 
                 // Process regular HTML content
@@ -70,6 +67,52 @@ namespace DocumentProcessor.Services
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 throw;
             }
+        }
+
+        private bool IsBulletListContent(string html)
+        {
+            return Regex.IsMatch(html.Trim(), @"^\s*<ul[^>]*>.*?</ul>\s*$", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        }
+
+        public string CreateBulletList(string html)
+        {
+            var listItems = ExtractListItems(html);
+            var sb = new StringBuilder();
+
+            foreach (var item in listItems)
+            {
+                var listParagraph = $@"<w:p xmlns:w=""{WordMlNamespace}"">
+                    <w:pPr>
+                        <w:numPr>
+                            <w:ilvl w:val=""0""/>
+                            <w:numId w:val=""{BulletListNumId}""/>
+                        </w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>{WebUtility.HtmlEncode(item)}</w:t></w:r>
+                </w:p>";
+                sb.AppendLine(listParagraph);
+            }
+
+            return sb.ToString();
+        }
+
+        private List<string> ExtractListItems(string html)
+        {
+            var items = new List<string>();
+            var matches = Regex.Matches(html, @"<li[^>]*>(.*?)</li>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+            foreach (Match match in matches)
+            {
+                var content = match.Groups[1].Value;
+                content = Regex.Replace(content, @"<[^>]+>", string.Empty);
+                content = WebUtility.HtmlDecode(content).Trim();
+                if (!string.IsNullOrEmpty(content))
+                {
+                    items.Add(content);
+                }
+            }
+
+            return items;
         }
 
         private bool IsTableContent(string html)
@@ -117,7 +160,6 @@ namespace DocumentProcessor.Services
                 var row = new TableRow();
                 var rowData = data[rowIndex];
 
-                // Add header properties if this is the first row
                 if (rowIndex == 0)
                 {
                     row.AppendChild(new TableRowProperties(new TableRowHeight { Val = 400 }));
@@ -160,13 +202,13 @@ namespace DocumentProcessor.Services
             return table;
         }
 
-        private string[][] ExtractTableData(string tableHtml)
+        private string[][] ExtractTableData(string html)
         {
-            Console.WriteLine($"Extracting data from table HTML:\n{tableHtml}");
+            Console.WriteLine($"Extracting data from table HTML:\n{html}");
             var rows = new List<string[]>();
 
             // Extract rows
-            var rowMatches = Regex.Matches(tableHtml, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            var rowMatches = Regex.Matches(html, @"<tr[^>]*>(.*?)</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
             Console.WriteLine($"Found {rowMatches.Count} rows");
 
             foreach (Match rowMatch in rowMatches)

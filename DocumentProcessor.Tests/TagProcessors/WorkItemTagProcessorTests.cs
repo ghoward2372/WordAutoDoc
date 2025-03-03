@@ -154,5 +154,105 @@ namespace DocumentProcessor.Tests.TagProcessors
             Assert.False(result.IsTable);
             Assert.Contains("[Work Item not found or empty]", result.ProcessedText);
         }
+
+        [Fact]
+        public async Task ProcessTagAsync_WithBulletList_HandlesListCorrectly()
+        {
+            // Arrange
+            const int workItemId = 1234;
+            var mixedContent = @"
+                Text before list
+                <ul>
+                    <li>First bullet point</li>
+                    <li>Second bullet point</li>
+                    <li>Third bullet point</li>
+                </ul>
+                Text after list";
+
+            // Set up text blocks for segmentation
+            var textBlocks = new List<TextBlockProcessor.TextBlock>
+            {
+                new TextBlockProcessor.TextBlock
+                {
+                    Type = TextBlockProcessor.BlockType.Text,
+                    Content = "Text before list"
+                },
+                new TextBlockProcessor.TextBlock
+                {
+                    Type = TextBlockProcessor.BlockType.List,
+                    Content = @"<ul>
+                        <li>First bullet point</li>
+                        <li>Second bullet point</li>
+                        <li>Third bullet point</li>
+                    </ul>"
+                },
+                new TextBlockProcessor.TextBlock
+                {
+                    Type = TextBlockProcessor.BlockType.Text,
+                    Content = "Text after list"
+                }
+            };
+
+            _mockTextBlockProcessor
+                .Setup(x => x.SegmentText(mixedContent))
+                .Returns(textBlocks);
+
+            // Expected bullet list XML
+            var listXml = @"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:pPr>
+                    <w:numPr>
+                        <w:ilvl w:val=""0""/>
+                        <w:numId w:val=""1""/>
+                    </w:numPr>
+                </w:pPr>
+                <w:r><w:t>First bullet point</w:t></w:r>
+            </w:p>
+            <w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:pPr>
+                    <w:numPr>
+                        <w:ilvl w:val=""0""/>
+                        <w:numId w:val=""1""/>
+                    </w:numPr>
+                </w:pPr>
+                <w:r><w:t>Second bullet point</w:t></w:r>
+            </w:p>
+            <w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"">
+                <w:pPr>
+                    <w:numPr>
+                        <w:ilvl w:val=""0""/>
+                        <w:numId w:val=""1""/>
+                    </w:numPr>
+                </w:pPr>
+                <w:r><w:t>Third bullet point</w:t></w:r>
+            </w:p>";
+
+            _mockAzureDevOpsService
+                .Setup(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD))
+                .ReturnsAsync(mixedContent);
+
+            _mockHtmlConverter
+                .Setup(x => x.ConvertHtmlToWordFormat(It.Is<string>(s => !s.Contains("<ul>"))))
+                .Returns<string>(text => "Converted: " + text.Trim());
+
+            _mockHtmlConverter
+                .Setup(x => x.CreateBulletList(It.IsAny<string>()))
+                .Returns(listXml);
+
+            // Act
+            var result = await _processor.ProcessTagAsync(workItemId.ToString(), _options);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.False(result.IsTable);
+            Assert.Contains("<LIST_START>", result.ProcessedText);
+            Assert.Contains("<LIST_END>", result.ProcessedText);
+            Assert.Contains("Converted: Text before list", result.ProcessedText);
+            Assert.Contains("Converted: Text after list", result.ProcessedText);
+            Assert.Contains(listXml.Replace(" ", ""), result.ProcessedText.Replace(" ", ""));
+
+            _mockAzureDevOpsService.Verify(x => x.GetWorkItemDocumentTextAsync(workItemId, TEST_FQ_FIELD), Times.Once);
+            _mockHtmlConverter.Verify(x => x.CreateBulletList(It.IsAny<string>()), Times.Once);
+            _mockTextBlockProcessor.Verify(x => x.SegmentText(mixedContent), Times.Once);
+        }
     }
 }

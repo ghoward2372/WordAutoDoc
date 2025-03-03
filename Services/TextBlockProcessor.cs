@@ -9,7 +9,8 @@ namespace DocumentProcessor.Services
         public enum BlockType
         {
             Text,
-            Table
+            Table,
+            List
         }
 
         public class TextBlock
@@ -32,26 +33,46 @@ namespace DocumentProcessor.Services
             var blocks = new List<TextBlock>();
             var currentPosition = 0;
 
-            // Find all table matches in the text
+            // Find all special content (tables and lists) in the text
             var tableMatches = Regex.Matches(
                 inputText, 
                 @"<table[^>]*>.*?</table>",
                 RegexOptions.Singleline | RegexOptions.IgnoreCase
             );
 
-            Console.WriteLine($"Found {tableMatches.Count} table(s) in text");
+            var listMatches = Regex.Matches(
+                inputText,
+                @"<ul[^>]*>.*?</ul>",
+                RegexOptions.Singleline | RegexOptions.IgnoreCase
+            );
 
-            foreach (Match tableMatch in tableMatches)
+            Console.WriteLine($"Found {tableMatches.Count} table(s) and {listMatches.Count} list(s) in text");
+
+            // Combine and sort all matches by their position in the text
+            var allMatches = new List<(int Index, int Length, BlockType Type, string Content)>();
+
+            foreach (Match match in tableMatches)
             {
-                Console.WriteLine($"Processing table match at position {tableMatch.Index}, length {tableMatch.Length}");
+                allMatches.Add((match.Index, match.Length, BlockType.Table, match.Value));
+            }
 
-                // Add text before the table if any
-                if (tableMatch.Index > currentPosition)
+            foreach (Match match in listMatches)
+            {
+                allMatches.Add((match.Index, match.Length, BlockType.List, match.Value));
+            }
+
+            allMatches.Sort((a, b) => a.Index.CompareTo(b.Index));
+
+            // Process all blocks in order
+            foreach (var match in allMatches)
+            {
+                // Add text before the special block if any
+                if (match.Index > currentPosition)
                 {
-                    var textContent = inputText.Substring(currentPosition, tableMatch.Index - currentPosition).Trim();
+                    var textContent = inputText.Substring(currentPosition, match.Index - currentPosition).Trim();
                     if (!string.IsNullOrWhiteSpace(textContent))
                     {
-                        Console.WriteLine($"Adding text block before table (length: {textContent.Length})");
+                        Console.WriteLine($"Adding text block before special content (length: {textContent.Length})");
                         blocks.Add(new TextBlock
                         {
                             Type = BlockType.Text,
@@ -60,21 +81,20 @@ namespace DocumentProcessor.Services
                     }
                 }
 
-                // Add the table block
-                var tableContent = tableMatch.Value.Trim();
-                Console.WriteLine($"Adding table block (length: {tableContent.Length})");
+                // Add the special block
+                Console.WriteLine($"Adding {match.Type} block (length: {match.Content.Length})");
                 blocks.Add(new TextBlock
                 {
-                    Type = BlockType.Table,
-                    Content = tableContent
+                    Type = match.Type,
+                    Content = match.Content.Trim()
                 });
 
-                // Update position to end of current table
-                currentPosition = tableMatch.Index + tableMatch.Length;
+                // Update position to end of current special block
+                currentPosition = match.Index + match.Length;
                 Console.WriteLine($"Updated current position to: {currentPosition}");
             }
 
-            // Add remaining text after last table if any
+            // Add remaining text after last special block if any
             if (currentPosition < inputText.Length)
             {
                 var remainingText = inputText.Substring(currentPosition).Trim();
@@ -95,7 +115,7 @@ namespace DocumentProcessor.Services
                 Console.WriteLine($"Block {i + 1}:");
                 Console.WriteLine($"Type: {blocks[i].Type}");
                 Console.WriteLine($"Content Length: {blocks[i].Content.Length}");
-                Console.WriteLine($"Content:\n{blocks[i].Content}\n");
+                Console.WriteLine($"Content Preview: {blocks[i].Content.Substring(0, Math.Min(100, blocks[i].Content.Length))}...\n");
             }
 
             return blocks;
