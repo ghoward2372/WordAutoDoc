@@ -1,9 +1,11 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
+using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DocumentProcessor.Services
@@ -71,6 +73,52 @@ namespace DocumentProcessor.Services
                 throw;
             }
         }
+
+        public string ConvertListToWordFormat(string htmlList, int numId)
+        {
+            var doc = new HtmlDocument();
+            doc.LoadHtml(htmlList);
+            var sb = new StringBuilder();
+
+            void ProcessList(HtmlNode listNode, int level)
+            {
+                foreach (var listItem in listNode.SelectNodes("li") ?? new HtmlNodeCollection(null))
+                {
+                    sb.AppendLine("<w:p>");
+                    sb.AppendLine($"<w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:numPr><w:ilvl w:val=\"{level}\"/><w:numId w:val=\"{numId}\"/></w:numPr><w:ind w:left=\"{720 + (level * 360)}\"/></w:pPr>");
+
+                    foreach (var childNode in listItem.ChildNodes)
+                    {
+                        string textContent = System.Security.SecurityElement.Escape(childNode.InnerText.Trim());
+                        if (!string.IsNullOrWhiteSpace(textContent))
+                        {
+                            sb.AppendLine("<w:r>");
+                            sb.AppendLine($"<w:t xml:space=\"preserve\">{textContent}</w:t>");
+                            sb.AppendLine("</w:r>");
+                        }
+                    }
+                    sb.AppendLine("</w:p>");
+
+                    var subList = listItem.SelectSingleNode("ul | ol");
+                    if (subList != null)
+                    {
+                        ProcessList(subList, level + 1);
+                    }
+                }
+            }
+
+            var rootList = doc.DocumentNode.SelectSingleNode("ul | ol");
+            if (rootList != null)
+            {
+                ProcessList(rootList, 0);
+            }
+
+            string finalXml = sb.ToString();
+            Console.WriteLine("Generated Word List XML:\n" + finalXml); // DEBUG OUTPUT
+            return finalXml;
+        }
+
+
 
         private bool IsTableContent(string html)
         {

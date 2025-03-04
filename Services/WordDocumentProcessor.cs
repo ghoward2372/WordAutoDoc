@@ -1,3 +1,4 @@
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
@@ -9,7 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using DocumentFormat.OpenXml;
+using System.Xml;
 
 namespace DocumentProcessor.Services
 {
@@ -20,6 +21,8 @@ namespace DocumentProcessor.Services
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         private const string TABLE_START_MARKER = "<TABLE_START>";
         private const string TABLE_END_MARKER = "<TABLE_END>";
+        private const string LIST_START_MARKER = "<LIST_START>";
+        private const string LIST_END_MARKER = "<LIST_END>";
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -52,6 +55,7 @@ namespace DocumentProcessor.Services
                     var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
                     var body = mainPart.Document?.Body ?? throw new InvalidOperationException("Document body is missing");
 
+                    InsertNumberingDefinition(mainPart);
                     await ProcessDocumentContentAsync(body);
                     mainPart.Document.Save();
                 }
@@ -63,6 +67,25 @@ namespace DocumentProcessor.Services
                 Console.WriteLine($"Error processing document: {ex.Message}");
                 throw;
             }
+        }
+        private void InsertNumberingDefinition(MainDocumentPart mainPart)
+        {
+            var numberingPart = mainPart.NumberingDefinitionsPart;
+            if (numberingPart == null)
+            {
+                numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
+                numberingPart.Numbering = new Numbering();
+            }
+
+            var abstractNum = new AbstractNum(new Level(new NumberingFormat() { Val = NumberFormatValues.Bullet },
+                new LevelText() { Val = "•" }, new ParagraphProperties(new Indentation() { Left = "720" }))
+            )
+            { AbstractNumberId = 1 };
+
+            var num = new NumberingInstance(new AbstractNumId() { Val = 1 }) { NumberID = 1 };
+
+            numberingPart.Numbering.Append(abstractNum);
+            numberingPart.Numbering.Append(num);
         }
 
         private async Task ProcessDocumentContentAsync(Body body)
@@ -107,7 +130,7 @@ namespace DocumentProcessor.Services
                 else if (text != processed.ProcessedText)
                 {
                     // Check if this is content from a WorkItem tag that might contain tables
-                    if (processed.ProcessedText.Contains(TABLE_START_MARKER))
+                    if (processed.ProcessedText.Contains(TABLE_START_MARKER) || processed.ProcessedText.Contains(LIST_START_MARKER))
                     {
                         InsertMixedContent(processed.ProcessedText, paragraph);
                     }
@@ -121,17 +144,18 @@ namespace DocumentProcessor.Services
             }
         }
 
-        private void InsertMixedContent(string content, Paragraph paragraph)
+        public void InsertMixedContent(string content, Paragraph paragraph)
         {
             try
             {
-                Console.WriteLine("Inserting mixed content with tables...");
+                Console.WriteLine("Inserting mixed content with tables and lists...");
 
-                // Split content by table markers
-                var parts = content.Split(new[] { TABLE_START_MARKER, TABLE_END_MARKER },
-                                       StringSplitOptions.RemoveEmptyEntries);
+                // Ensure markers are removed before processing
+                content = content.Replace(LIST_START_MARKER, "").Replace(LIST_END_MARKER, "");
 
-                // Keep track of our current position in the document
+                // Split content by table and list markers
+                var parts = content.Split(new[] { TABLE_START_MARKER, TABLE_END_MARKER }, StringSplitOptions.RemoveEmptyEntries);
+
                 OpenXmlElement currentElement = paragraph;
 
                 foreach (var part in parts)
@@ -141,27 +165,67 @@ namespace DocumentProcessor.Services
 
                     if (trimmedPart.StartsWith("<w:tbl"))
                     {
-                        // Handle table
                         Console.WriteLine("Processing embedded table");
-                        var table = new Table();
-                        var tableXml = trimmedPart;
-                        if (!tableXml.Contains("xmlns:w="))
+                        try
                         {
-                            tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
+                            var table = new Table();
+                            table.InnerXml = trimmedPart;
+                            currentElement.InsertAfterSelf(table);
+                            currentElement = table;
+                            Console.WriteLine("Table inserted successfully");
                         }
-                        table.InnerXml = tableXml;
-                        currentElement.InsertAfterSelf(table);
-                        currentElement = table;
-                        Console.WriteLine("Table inserted successfully");
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("Error inserting table: " + ex.Message);
+                        }
+                    }
+                    else if (trimmedPart.Contains("<w:numPr")) // Proper list detection
+                    {
+                        Console.WriteLine("Processing embedded list");
+                        try
+                        {
+                            var xmlDoc = new XmlDocument();
+                            var xmlNsManager = new XmlNamespaceManager(xmlDoc.NameTable);
+                            xmlNsManager.AddNamespace("w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main");
+
+                            xmlDoc.LoadXml("<root xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">" + trimmedPart + "</root>");
+                            var listNodes = xmlDoc.SelectNodes("//w:p", xmlNsManager);
+
+                            foreach (XmlNode node in listNodes)
+                            {
+                                var listParagraph = new Paragraph(
+                                    new ParagraphProperties(
+                                        new NumberingProperties(
+                                            new NumberingLevelReference() { Val = 0 },
+                                            new NumberingId() { Val = 1 }
+                                        )
+                                    ),
+                                    new Run(new Text(node.InnerText.Trim()))
+                                );
+                                currentElement.InsertAfterSelf(listParagraph);
+                                currentElement = listParagraph;
+                            }
+                            Console.WriteLine("List inserted successfully");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("Error inserting list: " + ex.Message);
+                        }
                     }
                     else
                     {
-                        // Handle text
                         Console.WriteLine("Processing text content");
-                        var newParagraph = new Paragraph(new Run(new Text(trimmedPart)));
-                        currentElement.InsertAfterSelf(newParagraph);
-                        currentElement = newParagraph;
-                        Console.WriteLine("Text paragraph inserted");
+                        try
+                        {
+                            var newParagraph = new Paragraph(new Run(new Text(trimmedPart)));
+                            currentElement.InsertAfterSelf(newParagraph);
+                            currentElement = newParagraph;
+                            Console.WriteLine("Text paragraph inserted");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("Error inserting text paragraph: " + ex.Message);
+                        }
                     }
                 }
 
@@ -173,7 +237,7 @@ namespace DocumentProcessor.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error processing mixed content: {ex.Message}");
+                Console.WriteLine($"Critical error processing mixed content: {ex.Message}");
                 throw;
             }
         }

@@ -1,11 +1,10 @@
 using DocumentProcessor.Services;
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.Text;
-using System.Net;
-using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace DocumentProcessor.Models.TagProcessors
 {
@@ -17,6 +16,8 @@ namespace DocumentProcessor.Models.TagProcessors
         private const string WordMlNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         private const string TABLE_START_MARKER = "<TABLE_START>";
         private const string TABLE_END_MARKER = "<TABLE_END>";
+        private const string LIST_START_MARKER = "<LIST_START>";
+        private const string LIST_END_MARKER = "<LIST_END>";
 
         public WorkItemTagProcessor(
             IAzureDevOpsService azureDevOpsService,
@@ -49,7 +50,6 @@ namespace DocumentProcessor.Models.TagProcessors
                 Console.WriteLine($"\n=== Processing Work Item {workItemId} ===");
                 Console.WriteLine($"Raw document text:\n{documentText}");
 
-                // Process the content by blocks
                 var processedContent = new StringBuilder();
                 var blocks = _textBlockProcessor.SegmentText(documentText);
                 Console.WriteLine($"Text segmented into {blocks.Count} blocks");
@@ -68,17 +68,24 @@ namespace DocumentProcessor.Models.TagProcessors
                             var table = _htmlConverter.CreateTable(tableData);
                             var tableXml = table.OuterXml;
 
-                            // Ensure table XML has the correct namespace
                             if (!tableXml.Contains("xmlns:w="))
                             {
                                 tableXml = tableXml.Replace("<w:tbl>", $"<w:tbl xmlns:w=\"{WordMlNamespace}\">");
                             }
 
-                            // Add special markers around the table XML for later processing
                             processedContent.AppendLine(TABLE_START_MARKER);
                             processedContent.AppendLine(tableXml);
                             processedContent.AppendLine(TABLE_END_MARKER);
                         }
+                    }
+                    else if (block.Type == TextBlockProcessor.BlockType.List)
+                    {
+                        Console.WriteLine("Converting list block to Word format...");
+                        var listXml = _htmlConverter.ConvertListToWordFormat(block.Content, 1);
+
+                        processedContent.AppendLine(LIST_START_MARKER);
+                        processedContent.AppendLine(listXml);
+                        processedContent.AppendLine(LIST_END_MARKER);
                     }
                     else
                     {
@@ -90,6 +97,7 @@ namespace DocumentProcessor.Models.TagProcessors
                 var result = processedContent.ToString();
                 Console.WriteLine($"\n=== Final Content Status ===");
                 Console.WriteLine($"Contains table XML: {result.Contains("<w:tbl")}");
+                Console.WriteLine($"Contains list XML: {result.Contains("<w:numPr")}");
                 Console.WriteLine($"Total length: {result.Length}");
                 Console.WriteLine($"Content preview: {(result.Length > 100 ? result.Substring(0, 100) + "..." : result)}");
 
@@ -101,6 +109,7 @@ namespace DocumentProcessor.Models.TagProcessors
                 return ProcessingResult.FromText($"[Error processing work item {tagContent}: {ex.Message}]");
             }
         }
+
 
         private string[][] ExtractTableData(string tableHtml)
         {
