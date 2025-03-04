@@ -38,6 +38,8 @@ namespace DocumentProcessor.Services
                 _tagProcessors.Add("WorkItem", new WorkItemTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("QueryID", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("QueryAsList", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
+                _tagProcessors.Add("SBOM", new SBOMTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
+
 
             }
         }
