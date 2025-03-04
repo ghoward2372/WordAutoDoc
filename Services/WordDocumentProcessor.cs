@@ -37,6 +37,8 @@ namespace DocumentProcessor.Services
             {
                 _tagProcessors.Add("WorkItem", new WorkItemTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("QueryID", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
+                _tagProcessors.Add("QueryAsList", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
+
             }
         }
 
@@ -129,7 +131,7 @@ namespace DocumentProcessor.Services
                 }
                 else if (text != processed.ProcessedText)
                 {
-                    // Check if this is content from a WorkItem tag that might contain tables
+                    // Check if this is content fromOnce a WorkItem tag that might contain tables
                     if (processed.ProcessedText.Contains(TABLE_START_MARKER) || processed.ProcessedText.Contains(LIST_START_MARKER))
                     {
                         InsertMixedContent(processed.ProcessedText, paragraph);
@@ -257,7 +259,27 @@ namespace DocumentProcessor.Services
                     {
                         Console.WriteLine($"\nProcessing {tagProcessor.Key} tag: {match.Value}");
                         var tagContent = match.Groups[1].Value;
-                        var processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
+                        ProcessingResult processedContent;
+
+                        if (tagProcessor.Value is QueryTagProcessor queryTagProcessor)
+                        {
+                            if (tagProcessor.Key == "QueryAsList")
+                            {
+                                processedContent = await queryTagProcessor.ProcessQueryAsListAsync(tagContent);
+                            }
+                            else if (tagProcessor.Key == "QueryID")
+                            {
+                                processedContent = await queryTagProcessor.ProcessTagAsync(tagContent, _options);
+                            }
+                            else
+                            {
+                                processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
+                            }
+                        }
+                        else
+                        {
+                            processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
+                        }
 
                         // If the tag processor returned a table, use it directly
                         if (processedContent.IsTable && processedContent.TableElement != null)

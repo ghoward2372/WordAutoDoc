@@ -194,7 +194,9 @@ namespace DocumentProcessor.Services
                     run.AppendChild(new Text(colIndex < rowData.Length ? rowData[colIndex] : string.Empty));
 
                     var para = new Paragraph(
-                        new ParagraphProperties(new Justification { Val = JustificationValues.Center }),
+                        new ParagraphProperties(
+                            new Justification { Val = rowIndex == 0 ? JustificationValues.Center : JustificationValues.Left } // Center header, left-align others
+                        ),
                         run
                     );
 
