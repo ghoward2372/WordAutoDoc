@@ -23,6 +23,7 @@ namespace DocumentProcessor.Services
         private const string TABLE_END_MARKER = "<TABLE_END>";
         private const string LIST_START_MARKER = "<LIST_START>";
         private const string LIST_END_MARKER = "<LIST_END>";
+        private int adoBulletIndex = -1;
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -238,14 +239,24 @@ namespace DocumentProcessor.Services
                                     new ParagraphProperties(
                                         new NumberingProperties(
                                             new NumberingLevelReference() { Val = 0 },
-                                            new NumberingId() { Val = -1 }
+                                            new NumberingId() { Val = adoBulletIndex }
                                         )
                                     ),
                                     new Run(new Text(node.InnerText.Trim()))
                                 );
+
                                 currentElement.InsertAfterSelf(listParagraph);
                                 currentElement = listParagraph;
                             }
+
+
+                            adoBulletIndex++;
+                            if (adoBulletIndex > 0)
+                            {
+                                adoBulletIndex = -1;
+                            }
+
+
                             Console.WriteLine("List inserted successfully");
                         }
                         catch (Exception ex)
