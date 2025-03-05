@@ -83,43 +83,29 @@ namespace DocumentProcessor.Services
                 numberingPart.Numbering = new Numbering();
             }
 
-            // 🔹 Define Multi-Level Numbering for Main Sections
-            var existingAbstractNum = numberingPart.Numbering.Elements<AbstractNum>()
-                .FirstOrDefault(a => a.AbstractNumberId == 1);
+            // 🔹 Define Bullet List for ADO (Only Bullets, Never Numbers)
+            var existingBulletNum = numberingPart.Numbering.Elements<AbstractNum>()
+                .FirstOrDefault(a => a.AbstractNumberId == 99); // Ensure uniqueness
 
-            if (existingAbstractNum == null)
+            if (existingBulletNum == null)
             {
-                var abstractNum = new AbstractNum(
-                    new Level( // Level 1: Main Numbering (1, 2, 3)
-                        new NumberingFormat() { Val = NumberFormatValues.Decimal },
-                        new LevelText() { Val = "%1." },
-                        new StartNumberingValue() { Val = 1 },
+                var abstractNumBullets = new AbstractNum(
+                    new Level(
+                        new NumberingFormat() { Val = NumberFormatValues.Bullet }, // Force bullets
+                        new LevelText() { Val = "•" }, // Bullet character
                         new ParagraphProperties(new Indentation() { Left = "720" })
                     )
-                    { LevelIndex = 0 },
-
-                    new Level( // Level 2: Sub-Bullets (a, b, c)
-                        new NumberingFormat() { Val = NumberFormatValues.LowerLetter },
-                        new LevelText() { Val = "%2." },
-                        new StartNumberingValue() { Val = 1 },
-                        new ParagraphProperties(new Indentation() { Left = "1440" })
-                    )
-                    { LevelIndex = 1 },
-
-                    new Level( // Level 3: Sub-Sub-Bullets (i, ii, iii)
-                        new NumberingFormat() { Val = NumberFormatValues.LowerRoman },
-                        new LevelText() { Val = "%3." },
-                        new StartNumberingValue() { Val = 1 },
-                        new ParagraphProperties(new Indentation() { Left = "2160" })
-                    )
-                    { LevelIndex = 2 }
+                    { LevelIndex = 0 }
                 )
-                { AbstractNumberId = 1 };
+                {
+                    AbstractNumberId = 99, // Unique identifier for ADO bullets
+                    MultiLevelType = new MultiLevelType() { Val = MultiLevelValues.SingleLevel } // Prevent hybrid/numbering confusion
+                };
 
-                var numberingInstance = new NumberingInstance(new AbstractNumId() { Val = 1 }) { NumberID = 1 };
+                var numBullets = new NumberingInstance(new AbstractNumId() { Val = 99 }) { NumberID = 99 };
 
-                numberingPart.Numbering.Append(abstractNum);
-                numberingPart.Numbering.Append(numberingInstance);
+                numberingPart.Numbering.Append(abstractNumBullets);
+                numberingPart.Numbering.Append(numBullets);
             }
 
             mainPart.Document.Save();
@@ -239,8 +225,9 @@ namespace DocumentProcessor.Services
                                     new ParagraphProperties(
                                         new NumberingProperties(
                                             new NumberingLevelReference() { Val = 0 },
-                                            new NumberingId() { Val = adoBulletIndex }
-                                        )
+                                            new NumberingId() { Val = 99 }
+                                        ),
+                                        new ParagraphStyleId() { Val = "ListBullet" }
                                     ),
                                     new Run(new Text(node.InnerText.Trim()))
                                 );
