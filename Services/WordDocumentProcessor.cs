@@ -61,7 +61,7 @@ namespace DocumentProcessor.Services
                     var body = mainPart.Document?.Body ?? throw new InvalidOperationException("Document body is missing");
 
                     InsertNumberingDefinition(mainPart);
-                    await ProcessDocumentContentAsync(body);
+                    await ProcessDocumentContentAsync(body, mainPart);
                     mainPart.Document.Save();
                 }
 
@@ -83,29 +83,31 @@ namespace DocumentProcessor.Services
                 numberingPart.Numbering = new Numbering();
             }
 
+            // 🔹 Ensure we do NOT override existing numbering!
+            int nextAbstractNumId = numberingPart.Numbering.Elements<AbstractNum>()
+                .Select(n => (int)n.AbstractNumberId.Value)
+                .DefaultIfEmpty(0)
+                .Max() + 1;
+
             // 🔹 Define Bullet List for ADO (Only Bullets, Never Numbers)
             var existingBulletNum = numberingPart.Numbering.Elements<AbstractNum>()
-                .FirstOrDefault(a => a.AbstractNumberId == 99); // Ensure uniqueness
+                .FirstOrDefault(a => a.Elements<Level>().Any(l => l.NumberingFormat.Val == NumberFormatValues.Bullet));
 
             if (existingBulletNum == null)
             {
                 var abstractNumBullets = new AbstractNum(
                     new Level(
-                        new NumberingFormat() { Val = NumberFormatValues.Bullet }, // Force bullets
+                        new NumberingFormat() { Val = NumberFormatValues.Bullet }, // Force bullet list
                         new LevelText() { Val = "•" }, // Bullet character
                         new ParagraphProperties(new Indentation() { Left = "720" })
                     )
                     { LevelIndex = 0 }
                 )
                 {
-                    AbstractNumberId = 99, // Unique identifier for ADO bullets
-                    MultiLevelType = new MultiLevelType() { Val = MultiLevelValues.SingleLevel } // Prevent hybrid/numbering confusion
+                    AbstractNumberId = nextAbstractNumId
                 };
 
-                var numBullets = new NumberingInstance(new AbstractNumId() { Val = 99 }) { NumberID = 99 };
-
                 numberingPart.Numbering.Append(abstractNumBullets);
-                numberingPart.Numbering.Append(numBullets);
             }
 
             mainPart.Document.Save();
@@ -114,9 +116,7 @@ namespace DocumentProcessor.Services
 
 
 
-
-
-        private async Task ProcessDocumentContentAsync(Body body)
+        private async Task ProcessDocumentContentAsync(Body body, MainDocumentPart mainDocument)
         {
             var paragraphsToProcess = body.Elements<Paragraph>().ToList();
             Console.WriteLine($"Processing {paragraphsToProcess.Count} paragraphs");
@@ -160,7 +160,7 @@ namespace DocumentProcessor.Services
                     // Check if this is content fromOnce a WorkItem tag that might contain tables
                     if (processed.ProcessedText.Contains(TABLE_START_MARKER) || processed.ProcessedText.Contains(LIST_START_MARKER))
                     {
-                        InsertMixedContent(processed.ProcessedText, paragraph);
+                        InsertMixedContent(processed.ProcessedText, paragraph, mainDocument);
                     }
                     else
                     {
@@ -172,7 +172,7 @@ namespace DocumentProcessor.Services
             }
         }
 
-        public void InsertMixedContent(string content, Paragraph paragraph)
+        public void InsertMixedContent(string content, Paragraph paragraph, MainDocumentPart mainDocumentPart)
         {
             try
             {
@@ -219,13 +219,69 @@ namespace DocumentProcessor.Services
                             xmlDoc.LoadXml("<root xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">" + trimmedPart + "</root>");
                             var listNodes = xmlDoc.SelectNodes("//w:p", xmlNsManager);
 
+                            if (listNodes == null || listNodes.Count == 0)
+                            {
+                                return;
+                            }
+
+                            // 🔹 Retrieve numbering part **once** before the loop
+                            var numberingPart = mainDocumentPart.NumberingDefinitionsPart;
+                            if (numberingPart == null || numberingPart.Numbering == null)
+                            {
+                                return; // 🔥 Fail gracefully if numbering is missing
+                            }
+                            // 🔹 Get or create the bullet list AbstractNumId **once**
+                            // 🔹 Retrieve existing bullet numbering OR create a new one
+                            int bulletAbstractNumId = numberingPart.Numbering.Elements<AbstractNum>()
+                                .FirstOrDefault(n => n.Elements<Level>().Any(l => l.NumberingFormat.Val == NumberFormatValues.Bullet))?
+                                .AbstractNumberId ?? -1;
+
+                            // If no bullet numbering exists, create a new one
+                            if (bulletAbstractNumId == -1)
+                            {
+                                // Create a new AbstractNumId for bullets if none exist
+                                bulletAbstractNumId = numberingPart.Numbering.Elements<AbstractNum>()
+                                    .Select(n => (int)n.AbstractNumberId.Value)
+                                    .DefaultIfEmpty(0)
+                                    .Max() + 1;
+
+                                var abstractNumBullets = new AbstractNum(
+                                    new Level(
+                                        new NumberingFormat() { Val = NumberFormatValues.Bullet }, // Force bullets
+                                        new LevelText() { Val = "•" },
+                                        new ParagraphProperties(new Indentation() { Left = "720" })
+                                    )
+                                    { LevelIndex = 0 }
+                                )
+                                {
+                                    AbstractNumberId = bulletAbstractNumId
+                                };
+
+                                numberingPart.Numbering.Append(abstractNumBullets);
+                            }
+
+                            int bulletNumberId = numberingPart.Numbering.Elements<NumberingInstance>()
+                             .FirstOrDefault(n => n.AbstractNumId.Val == bulletAbstractNumId)?
+                             .NumberID ?? -1;
+
+                            if (bulletNumberId == -1)
+                            {
+                                bulletNumberId = numberingPart.Numbering.Elements<NumberingInstance>()
+                                    .Select(n => (int)n.NumberID.Value)
+                                    .DefaultIfEmpty(0)
+                                    .Max() + 1;
+
+                                numberingPart.Numbering.Append(new NumberingInstance(new AbstractNumId() { Val = bulletAbstractNumId }) { NumberID = bulletNumberId });
+                            }
+
+                            // 🔹 Now process list items in the loop
                             foreach (XmlNode node in listNodes)
                             {
                                 var listParagraph = new Paragraph(
                                     new ParagraphProperties(
                                         new NumberingProperties(
                                             new NumberingLevelReference() { Val = 0 },
-                                            new NumberingId() { Val = 99 }
+                                            new NumberingId() { Val = bulletNumberId }
                                         ),
                                         new ParagraphStyleId() { Val = "ListBullet" }
                                     ),
@@ -236,12 +292,6 @@ namespace DocumentProcessor.Services
                                 currentElement = listParagraph;
                             }
 
-
-                            adoBulletIndex++;
-                            if (adoBulletIndex > 0)
-                            {
-                                adoBulletIndex = -1;
-                            }
 
 
                             Console.WriteLine("List inserted successfully");
