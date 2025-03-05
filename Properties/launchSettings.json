@@ -2,7 +2,7 @@
   "profiles": {
     "DocumentProcessor": {
       "commandName": "Project",
-      "commandLineArgs": "c:\\temp\\test_document.docx\r\nc:\\temp\\output.docx\r\n"
+      "commandLineArgs": "c:\\temp\\Bullet_test1.docx\r\nc:\\temp\\output.docx\r\n"
     }
   }
 }

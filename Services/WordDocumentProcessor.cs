@@ -1,4 +1,4 @@
-using DocumentFormat.OpenXml;
+﻿using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentProcessor.Models;
@@ -23,6 +23,7 @@ namespace DocumentProcessor.Services
         private const string TABLE_END_MARKER = "<TABLE_END>";
         private const string LIST_START_MARKER = "<LIST_START>";
         private const string LIST_END_MARKER = "<LIST_END>";
+        private int adoBulletIndex = -1;
 
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
@@ -75,22 +76,59 @@ namespace DocumentProcessor.Services
         private void InsertNumberingDefinition(MainDocumentPart mainPart)
         {
             var numberingPart = mainPart.NumberingDefinitionsPart;
+
             if (numberingPart == null)
             {
                 numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
                 numberingPart.Numbering = new Numbering();
             }
 
-            var abstractNum = new AbstractNum(new Level(new NumberingFormat() { Val = NumberFormatValues.Bullet },
-                new LevelText() { Val = "�" }, new ParagraphProperties(new Indentation() { Left = "720" }))
-            )
-            { AbstractNumberId = 1 };
+            // 🔹 Define Multi-Level Numbering for Main Sections
+            var existingAbstractNum = numberingPart.Numbering.Elements<AbstractNum>()
+                .FirstOrDefault(a => a.AbstractNumberId == 1);
 
-            var num = new NumberingInstance(new AbstractNumId() { Val = 1 }) { NumberID = 1 };
+            if (existingAbstractNum == null)
+            {
+                var abstractNum = new AbstractNum(
+                    new Level( // Level 1: Main Numbering (1, 2, 3)
+                        new NumberingFormat() { Val = NumberFormatValues.Decimal },
+                        new LevelText() { Val = "%1." },
+                        new StartNumberingValue() { Val = 1 },
+                        new ParagraphProperties(new Indentation() { Left = "720" })
+                    )
+                    { LevelIndex = 0 },
 
-            numberingPart.Numbering.Append(abstractNum);
-            numberingPart.Numbering.Append(num);
+                    new Level( // Level 2: Sub-Bullets (a, b, c)
+                        new NumberingFormat() { Val = NumberFormatValues.LowerLetter },
+                        new LevelText() { Val = "%2." },
+                        new StartNumberingValue() { Val = 1 },
+                        new ParagraphProperties(new Indentation() { Left = "1440" })
+                    )
+                    { LevelIndex = 1 },
+
+                    new Level( // Level 3: Sub-Sub-Bullets (i, ii, iii)
+                        new NumberingFormat() { Val = NumberFormatValues.LowerRoman },
+                        new LevelText() { Val = "%3." },
+                        new StartNumberingValue() { Val = 1 },
+                        new ParagraphProperties(new Indentation() { Left = "2160" })
+                    )
+                    { LevelIndex = 2 }
+                )
+                { AbstractNumberId = 1 };
+
+                var numberingInstance = new NumberingInstance(new AbstractNumId() { Val = 1 }) { NumberID = 1 };
+
+                numberingPart.Numbering.Append(abstractNum);
+                numberingPart.Numbering.Append(numberingInstance);
+            }
+
+            mainPart.Document.Save();
         }
+
+
+
+
+
 
         private async Task ProcessDocumentContentAsync(Body body)
         {
@@ -201,14 +239,24 @@ namespace DocumentProcessor.Services
                                     new ParagraphProperties(
                                         new NumberingProperties(
                                             new NumberingLevelReference() { Val = 0 },
-                                            new NumberingId() { Val = 1 }
+                                            new NumberingId() { Val = adoBulletIndex }
                                         )
                                     ),
                                     new Run(new Text(node.InnerText.Trim()))
                                 );
+
                                 currentElement.InsertAfterSelf(listParagraph);
                                 currentElement = listParagraph;
                             }
+
+
+                            adoBulletIndex++;
+                            if (adoBulletIndex > 0)
+                            {
+                                adoBulletIndex = -1;
+                            }
+
+
                             Console.WriteLine("List inserted successfully");
                         }
                         catch (Exception ex)
