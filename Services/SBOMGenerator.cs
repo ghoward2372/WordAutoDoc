@@ -20,6 +20,7 @@ public class SBOMGenerator
     private readonly Dictionary<string, List<CVEEntry>> _vendorCVEs = new Dictionary<string, List<CVEEntry>>();
     private static readonly HttpClient _httpClient = new HttpClient();
     private readonly List<SBOMVulnerability> _sbomVulnerabilities = new List<SBOMVulnerability>();
+    private Dictionary<string, string> componentCPEQueries = new Dictionary<string, string>();
 
     public SBOMGenerator(string installPath, IConfiguration configuration)
     {
@@ -247,10 +248,12 @@ public class SBOMGenerator
 
 
 
-
+    /*
 
     private async Task FetchCVEDataAsync()
     {
+        List<string> failedCPEMatches = new List<string>();
+
         foreach (var component in _sbomComponents)
         {
             try
@@ -268,7 +271,8 @@ public class SBOMGenerator
                 // 🚨 Skip if no valid CPE was found
                 if (bestCpe == "Unknown")
                 {
-                    Console.WriteLine($"⚠️ No valid CPE found for {component.name}, skipping CVE query.");
+                    //Console.WriteLine($"⚠️ No valid CPE found for {component.name}, skipping CVE query.");
+                    failedCPEMatches.Add(component.name);
                     continue;
                 }
 
@@ -316,14 +320,145 @@ public class SBOMGenerator
                 Console.WriteLine($"⚠️ Unexpected Error fetching CVEs: {ex.Message}");
             }
         }
+
+        Console.WriteLine("The following components did not have CPE matches in the NIST database: ");
+        foreach (string failedMatch in failedCPEMatches)
+        {
+            Console.WriteLine("   " + failedMatch);
+        }
+    }
+    */
+
+    private async Task FetchCVEDataAsync()
+    {
+        List<string> failedCPEComponents = new List<string>(); // 🔥 Store components with no CPE match
+
+        foreach (var component in _sbomComponents)
+        {
+            try
+            {
+                // ✅ Restore correct product name normalization
+                string cleanedProductName = NormalizeProductName(component.name, component.version);
+
+                string bestCpe = "Unknown";
+
+                // 🔥 Special handling for .NET components (keep this working!)
+                if (cleanedProductName.ToLower().Contains("microsoft .net"))
+                {
+                    bestCpe = await GetCorrectCPEForDotNet(component.version, cleanedProductName);
+                }
+                else
+                {
+                    // 🔥 For all other components, attempt a generic CPE lookup
+                    bestCpe = await GetCorrectCPEForProduct(component.name, component.version);
+                }
+
+                // 🚨 Skip if no valid CPE was found
+                if (bestCpe == "Unknown")
+                {
+                    failedCPEComponents.Add(component.name); // 🔥 Store the component instead of printing immediately
+                    continue;
+                }
+
+                Console.WriteLine($"✅ Found CPE: {bestCpe} for {component.name}");
+
+                // 🔍 **Correctly format the CVE query**
+                string encodedCpe = Uri.EscapeDataString(bestCpe);
+                var cveUrl = $"https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName={encodedCpe}";
+
+                Console.WriteLine($"🔍 Querying CVEs for CPE: {bestCpe}");
+                Console.WriteLine($"🛠️ FINAL URL: {cveUrl}");
+
+                var cveRequest = new HttpRequestMessage(HttpMethod.Get, cveUrl);
+                cveRequest.Headers.Add("apiKey", _nistApiKey);
+                cveRequest.Headers.Add("User-Agent", "SBOM-Generator/1.0");
+
+                var cveResponse = await _httpClient.SendAsync(cveRequest);
+
+                if (cveResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    Console.WriteLine($"❌ No CVEs found for CPE: {bestCpe} (404 Not Found).");
+                    continue;
+                }
+
+                cveResponse.EnsureSuccessStatusCode();
+
+                var cveResponseString = await cveResponse.Content.ReadAsStringAsync();
+                var cveData = JsonConvert.DeserializeObject<CVEResponse>(cveResponseString);
+
+                if (cveData?.vulnerabilities != null && cveData.vulnerabilities.Any())
+                {
+                    Console.WriteLine($"✅ Found {cveData.vulnerabilities.Count} vulnerabilities for {component.name}");
+                }
+                else
+                {
+                    Console.WriteLine($"✅ No vulnerabilities found for CPE: {bestCpe}");
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                Console.WriteLine($"⚠️ HTTP Error fetching CVEs: {httpEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Unexpected Error fetching CVEs: {ex.Message}");
+            }
+        }
+
+        // 🔥 Print all failed CPE lookups at the end for better readability
+        if (failedCPEComponents.Count > 0)
+        {
+            Console.WriteLine("\n❌ The following components could not be matched to a CPE:");
+            foreach (var component in failedCPEComponents)
+            {
+                Console.WriteLine($"   - {component}");
+            }
+        }
     }
 
+    private async Task<string> GetCorrectCPEForProduct(string productName, string version)
+    {
+        try
+        {
+            string keywordQuery = $"{productName} {version}";
 
+            string cpeSearchUrl = $"https://services.nvd.nist.gov/rest/json/cpes/2.0?keywordSearch={Uri.EscapeDataString(keywordQuery)}";
 
+            Console.WriteLine($"🔍 Searching for CPE: {keywordQuery}");
 
+            var cpeRequest = new HttpRequestMessage(HttpMethod.Get, cpeSearchUrl);
+            cpeRequest.Headers.Add("apiKey", _nistApiKey);
+            cpeRequest.Headers.Add("User-Agent", "SBOM-Generator/1.0");
 
+            var cpeResponse = await _httpClient.SendAsync(cpeRequest);
+            cpeResponse.EnsureSuccessStatusCode();
 
+            var cpeResponseString = await cpeResponse.Content.ReadAsStringAsync();
+            var cpeData = JsonConvert.DeserializeObject<CPEApiResponse>(cpeResponseString);
 
+            if (cpeData?.products != null && cpeData.products.Any())
+            {
+                foreach (var product in cpeData.products)
+                {
+                    string foundCpe = product.cpe.cpeName;
+                    if (foundCpe.Contains(productName, StringComparison.OrdinalIgnoreCase) &&
+                        foundCpe.Contains(version))
+                    {
+                        Console.WriteLine($"✅ Found valid CPE: {foundCpe}");
+                        return foundCpe;
+                    }
+                }
+            }
+
+            Console.WriteLine($"❌ No exact CPE match found for {productName} {version}");
+            return "Unknown";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Error retrieving CPE: {ex.Message}");
+            return "Unknown";
+        }
+    }
 
     private string GetDotNetVersionFromRuntimeConfig(string filePath)
     {
