@@ -37,7 +37,12 @@ public class SBOMGenerator
         ProcessFiles();
         await FetchCVEDataAsync();
         // Generate Sample SBOM with 3 Entries First
-        string sampleSbom = GenerateCycloneDxSBOM(false);
+        string sampleSbom = GenerateCycloneDxSBOM();
+        Console.WriteLine("🔍 Checking SBOM output:");
+        foreach (var component in _sbomComponents.Take(5)) // Only print the first 5 to keep it readable
+        {
+            Console.WriteLine($"Component: {component.name}, bom-ref: {component.bomRef}");
+        }
         return sampleSbom;
     }
 
@@ -140,7 +145,6 @@ public class SBOMGenerator
 
                 var component = new SBOMComponent
                 {
-                    bomRef = GeneratePurl(product, majorVersion, vendor),
                     type = "file",
                     name = product,
                     version = majorVersion,
@@ -160,7 +164,6 @@ public class SBOMGenerator
                         Console.WriteLine($"✅ Detected .NET Framework: {frameworkVersion}");
                         _sbomComponents.Add(new SBOMComponent
                         {
-                            bomRef = GeneratePurl("Microsoft .NET", frameworkVersion, "Microsoft"),
                             type = "framework",
                             name = "Microsoft .NET",
                             version = frameworkVersion,
@@ -240,7 +243,7 @@ public class SBOMGenerator
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"⚠️ Error retrieving CPE: {ex.Message}");
+            Console.WriteLine($"Error retrieving CPE: {ex.Message}");
             return "Unknown";
         }
     }
@@ -431,10 +434,8 @@ public class SBOMGenerator
                         {
                             id = vuln.cve.id,
                             source = new Source { name = "NVD" },
-                            references = vuln.cve.references != null
-                                ? vuln.cve.references.Select(r => new ReferenceEntry { url = r.url }).ToList()
-                                : new List<ReferenceEntry>(),
-                            affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.bomRef } },
+                            references = vuln.cve.references?.Select(r => new ReferenceEntry { url = r.url }).ToList() ?? new List<ReferenceEntry>(),
+                            affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.bomRef } }, // 🔥 Link vulnerability to correct bom-ref
                             description = vuln.cve.descriptions?.FirstOrDefault()?.value ?? "No description available"
                         };
                         collectedVulnerabilities.Add(sbomVuln);
@@ -511,7 +512,7 @@ public class SBOMGenerator
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"⚠️ Error retrieving CPE: {ex.Message}");
+            Console.WriteLine($"⚠️ Error retrieving CPE for " + productName + ": {ex.Message}");
             return "Unknown";
         }
     }
@@ -708,11 +709,30 @@ public class SBOMGenerator
     }
 
 
-    private string GenerateCycloneDxSBOM(bool sampleMode)
-    {
-        var selectedComponents = sampleMode ? _sbomComponents.Take(1).ToList() : _sbomComponents;
-        var selectedVulnerabilities = sampleMode ? _sbomVulnerabilities.Take(3).ToList() : _sbomVulnerabilities;
+    //private string GenerateCycloneDxSBOM(bool sampleMode)
+    //{
+    //    var selectedComponents = sampleMode ? _sbomComponents.Take(1).ToList() : _sbomComponents;
+    //    var selectedVulnerabilities = sampleMode ? _sbomVulnerabilities.Take(3).ToList() : _sbomVulnerabilities;
 
+    //    var sbom = new CycloneDxSBOM
+    //    {
+    //        bomFormat = "CycloneDX",
+    //        specVersion = "1.4",
+    //        serialNumber = "urn:uuid:" + Guid.NewGuid(),
+    //        version = 1,
+    //        metadata = new Metadata
+    //        {
+    //            timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"), // Enforce timestamp format
+    //            tools = new List<Tool> { new Tool { vendor = "Custom SBOM Generator", name = "SBOMGen", version = "1.0.0" } }
+    //        },
+    //        components = selectedComponents,
+    //        vulnerabilities = selectedVulnerabilities
+    //    };
+
+    //    return JsonConvert.SerializeObject(sbom, Formatting.Indented);
+    //}
+    private string GenerateCycloneDxSBOM()
+    {
         var sbom = new CycloneDxSBOM
         {
             bomFormat = "CycloneDX",
@@ -721,11 +741,20 @@ public class SBOMGenerator
             version = 1,
             metadata = new Metadata
             {
-                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"), // Enforce timestamp format
+                timestamp = DateTime.UtcNow.ToString("o"),
                 tools = new List<Tool> { new Tool { vendor = "Custom SBOM Generator", name = "SBOMGen", version = "1.0.0" } }
             },
-            components = selectedComponents,
-            vulnerabilities = selectedVulnerabilities
+            components = _sbomComponents.Select(c => new SBOMComponent
+            {
+                bomRef = c.bomRef,  // 🔥 Ensure this value is explicitly copied into the JSON
+                type = c.type,
+                name = c.name,
+                version = c.version,
+                supplier = c.supplier,
+                hashes = c.hashes,
+                purl = c.purl
+            }).ToList(),
+            vulnerabilities = _sbomVulnerabilities
         };
 
         return JsonConvert.SerializeObject(sbom, Formatting.Indented);
@@ -790,9 +819,39 @@ public class Metadata { public string timestamp { get; set; } public List<Tool> 
 public class Tool { public string vendor { get; set; } public string name { get; set; } public string version { get; set; } }
 public class Source { public string name { get; set; } }
 public class AffectedComponent { public string @ref { get; set; } }
-public class SBOMVulnerability { public string id { get; set; } public Source source { get; set; } public List<ReferenceEntry> references { get; set; } public List<AffectedComponent> affects { get; set; } public string description { get; set; } }
+//public class SBOMVulnerability { public string id { get; set; } public Source source { get; set; } public List<ReferenceEntry> references { get; set; } public List<AffectedComponent> affects { get; set; } public string description { get; set; } }
+public class SBOMVulnerability
+{
+    public string id { get; set; }
+    public Source source { get; set; }
+    public List<ReferenceEntry> references { get; set; }
+    public List<AffectedComponent> affects { get; set; }
+    public string description { get; set; }
+}
+
 public class CycloneDxSBOM { public string bomFormat { get; set; } public string specVersion { get; set; } public string serialNumber { get; set; } public int version { get; set; } public Metadata metadata { get; set; } public List<SBOMComponent> components { get; set; } public List<SBOMVulnerability> vulnerabilities { get; set; } }
-public class SBOMComponent { public string bomRef { get; set; } public string type { get; set; } public string name { get; set; } public string version { get; set; } public Supplier supplier { get; set; } public List<HashEntry> hashes { get; set; } public string purl { get; set; } }
+//public class SBOMComponent { public string bomRef { get; set; } public string type { get; set; } public string name { get; set; } public string version { get; set; } public Supplier supplier { get; set; } public List<HashEntry> hashes { get; set; } public string purl { get; set; } }
+public class SBOMComponent
+{
+    [JsonProperty("bom-ref")]
+    public string bomRef { get; set; }
+
+    public string type { get; set; }
+    public string name { get; set; }
+    public string version { get; set; }
+    public Supplier supplier { get; set; }
+    public List<HashEntry> hashes { get; set; }
+    public string purl { get; set; }
+
+    public SBOMComponent()
+    {
+        // 🔥 Generate a guaranteed unique bom-ref
+        bomRef = $"pkg:{(supplier?.name ?? "unknown").ToLower()}/{name}-{version}@{version}-{Guid.NewGuid()}".Replace(" ", "-");
+    }
+}
+
+
+
 public class CVEEntry { public string Id { get; set; } public string Description { get; set; } public List<ReferenceEntry> References { get; set; } }
 public class CVEResponse { public List<Vulnerability> vulnerabilities { get; set; } }
 public class Vulnerability { public CVEDetails cve { get; set; } }
