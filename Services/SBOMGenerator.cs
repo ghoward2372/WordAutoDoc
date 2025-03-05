@@ -252,85 +252,6 @@ public class SBOMGenerator
 
     private async Task FetchCVEDataAsync()
     {
-        List<string> failedCPEMatches = new List<string>();
-
-        foreach (var component in _sbomComponents)
-        {
-            try
-            {
-                // ✅ Restore correct product name normalization
-                string cleanedProductName = NormalizeProductName(component.name, component.version);
-
-                // 🔍 If this is a .NET framework, find the correct CPE dynamically
-                string bestCpe = "Unknown";
-                if (cleanedProductName.ToLower().Contains("microsoft .net"))
-                {
-                    bestCpe = await GetCorrectCPEForDotNet(component.version, cleanedProductName);
-                }
-
-                // 🚨 Skip if no valid CPE was found
-                if (bestCpe == "Unknown")
-                {
-                    //Console.WriteLine($"⚠️ No valid CPE found for {component.name}, skipping CVE query.");
-                    failedCPEMatches.Add(component.name);
-                    continue;
-                }
-
-                Console.WriteLine($"✅ Found CPE: {bestCpe} for {component.name}");
-
-                // 🔍 **Correctly format the CVE query**
-                string encodedCpe = Uri.EscapeDataString(bestCpe);
-                var cveUrl = $"https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName={encodedCpe}";
-
-                Console.WriteLine($"🔍 Querying CVEs for CPE: {bestCpe}");
-                Console.WriteLine($"🛠️ FINAL URL: {cveUrl}");
-
-                var cveRequest = new HttpRequestMessage(HttpMethod.Get, cveUrl);
-                cveRequest.Headers.Add("apiKey", _nistApiKey);
-                cveRequest.Headers.Add("User-Agent", "SBOM-Generator/1.0");
-
-                var cveResponse = await _httpClient.SendAsync(cveRequest);
-
-                if (cveResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    Console.WriteLine($"❌ No CVEs found for CPE: {bestCpe} (404 Not Found).");
-                    continue;
-                }
-
-                cveResponse.EnsureSuccessStatusCode();
-
-                var cveResponseString = await cveResponse.Content.ReadAsStringAsync();
-                var cveData = JsonConvert.DeserializeObject<CVEResponse>(cveResponseString);
-
-                if (cveData?.vulnerabilities != null && cveData.vulnerabilities.Any())
-                {
-                    Console.WriteLine($"✅ Found {cveData.vulnerabilities.Count} vulnerabilities for {component.name}");
-                }
-                else
-                {
-                    Console.WriteLine($"✅ No vulnerabilities found for CPE: {bestCpe}");
-                }
-            }
-            catch (HttpRequestException httpEx)
-            {
-                Console.WriteLine($"⚠️ HTTP Error fetching CVEs: {httpEx.Message}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"⚠️ Unexpected Error fetching CVEs: {ex.Message}");
-            }
-        }
-
-        Console.WriteLine("The following components did not have CPE matches in the NIST database: ");
-        foreach (string failedMatch in failedCPEMatches)
-        {
-            Console.WriteLine("   " + failedMatch);
-        }
-    }
-    */
-
-    private async Task FetchCVEDataAsync()
-    {
         List<string> failedCPEComponents = new List<string>(); // 🔥 Store components with no CPE match
 
         foreach (var component in _sbomComponents)
@@ -415,6 +336,141 @@ public class SBOMGenerator
             }
         }
     }
+    */
+    private async Task FetchCVEDataAsync()
+    {
+        List<string> failedCPEComponents = new List<string>(); // 🔥 Store components with no CPE match
+        Dictionary<string, string> resolvedCPEs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // 🔥 Track searched CPEs for components
+        HashSet<string> processedCPEs = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // 🔥 Prevent duplicate CVE queries
+        List<SBOMVulnerability> collectedVulnerabilities = new List<SBOMVulnerability>(); // 🔥 Store vulnerabilities before adding to SBOM
+
+        foreach (var component in _sbomComponents)
+        {
+            try
+            {
+                // ✅ Restore correct product name normalization
+                string cleanedProductName = NormalizeProductName(component.name, component.version);
+
+                string bestCpe = "Unknown";
+
+                // 🔥 Check if we have already found a CPE for this component name
+                if (resolvedCPEs.ContainsKey(cleanedProductName))
+                {
+                    bestCpe = resolvedCPEs[cleanedProductName];
+                    Console.WriteLine($"⏩ Using cached CPE for: {cleanedProductName} → {bestCpe}");
+                }
+                else
+                {
+                    // 🔥 Special handling for .NET components (keep this working!)
+                    if (cleanedProductName.ToLower().Contains("microsoft .net"))
+                    {
+                        bestCpe = await GetCorrectCPEForDotNet(component.version, cleanedProductName);
+                    }
+                    else
+                    {
+                        // 🔥 For all other components, attempt a generic CPE lookup
+                        bestCpe = await GetCorrectCPEForProduct(component.name, component.version);
+                    }
+
+                    // 🔥 Store the resolved CPE for future identical components
+                    if (bestCpe != "Unknown")
+                    {
+                        resolvedCPEs[cleanedProductName] = bestCpe;
+                    }
+                }
+
+                // 🚨 Skip if no valid CPE was found
+                if (bestCpe == "Unknown")
+                {
+                    failedCPEComponents.Add(component.name); // 🔥 Store the component instead of printing immediately
+                    continue;
+                }
+
+                Console.WriteLine($"✅ Found CPE: {bestCpe} for {component.name}");
+
+                // 🔥 Prevent duplicate CVE lookups for the same CPE
+                if (processedCPEs.Contains(bestCpe))
+                {
+                    Console.WriteLine($"⏩ Skipping duplicate CVE query for CPE: {bestCpe}");
+                    continue;
+                }
+                processedCPEs.Add(bestCpe);
+
+                // 🔍 **Correctly format the CVE query**
+                string encodedCpe = Uri.EscapeDataString(bestCpe);
+                var cveUrl = $"https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName={encodedCpe}";
+
+                Console.WriteLine($"🔍 Querying CVEs for CPE: {bestCpe}");
+                Console.WriteLine($"🛠️ FINAL URL: {cveUrl}");
+
+                var cveRequest = new HttpRequestMessage(HttpMethod.Get, cveUrl);
+                cveRequest.Headers.Add("apiKey", _nistApiKey);
+                cveRequest.Headers.Add("User-Agent", "SBOM-Generator/1.0");
+
+                var cveResponse = await _httpClient.SendAsync(cveRequest);
+
+                if (cveResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    Console.WriteLine($"❌ No CVEs found for CPE: {bestCpe} (404 Not Found).");
+                    continue;
+                }
+
+                cveResponse.EnsureSuccessStatusCode();
+
+                var cveResponseString = await cveResponse.Content.ReadAsStringAsync();
+                var cveData = JsonConvert.DeserializeObject<CVEResponse>(cveResponseString);
+
+                if (cveData?.vulnerabilities != null && cveData.vulnerabilities.Any())
+                {
+                    Console.WriteLine($"✅ Found {cveData.vulnerabilities.Count} vulnerabilities for {component.name}");
+
+                    // 🔥 Ensure vulnerabilities are stored in _sbomVulnerabilities
+                    foreach (var vuln in cveData.vulnerabilities)
+                    {
+                        var sbomVuln = new SBOMVulnerability
+                        {
+                            id = vuln.cve.id,
+                            source = new Source { name = "NVD" },
+                            references = vuln.cve.references != null
+                                ? vuln.cve.references.Select(r => new ReferenceEntry { url = r.url }).ToList()
+                                : new List<ReferenceEntry>(),
+                            affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.bomRef } },
+                            description = vuln.cve.descriptions?.FirstOrDefault()?.value ?? "No description available"
+                        };
+                        collectedVulnerabilities.Add(sbomVuln);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"✅ No vulnerabilities found for CPE: {bestCpe}");
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                Console.WriteLine($"⚠️ HTTP Error fetching CVEs: {httpEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Unexpected Error fetching CVEs: {ex.Message}");
+            }
+        }
+
+        // 🔥 Add all collected vulnerabilities to _sbomVulnerabilities at the end
+        _sbomVulnerabilities.AddRange(collectedVulnerabilities);
+
+        // 🔥 Print all failed CPE lookups at the end for better readability
+        if (failedCPEComponents.Count > 0)
+        {
+            Console.WriteLine("\n❌ The following components could not be matched to a CPE:");
+            foreach (var component in failedCPEComponents)
+            {
+                Console.WriteLine($"   - {component}");
+            }
+        }
+    }
+
+
+
 
     private async Task<string> GetCorrectCPEForProduct(string productName, string version)
     {
@@ -740,5 +796,16 @@ public class SBOMComponent { public string bomRef { get; set; } public string ty
 public class CVEEntry { public string Id { get; set; } public string Description { get; set; } public List<ReferenceEntry> References { get; set; } }
 public class CVEResponse { public List<Vulnerability> vulnerabilities { get; set; } }
 public class Vulnerability { public CVEDetails cve { get; set; } }
-public class CVEDetails { public string id { get; set; } public List<CVEDescription> descriptions { get; set; } }
+public class CVEDetails
+{
+    public string id { get; set; }
+    public List<CVEDescription> descriptions { get; set; }
+    public List<CVEReference> references { get; set; }  // 🔥 FIX: Add missing references
+}
+
+public class CVEReference
+{
+    public string url { get; set; }
+}
+
 public class CVEDescription { public string Lang { get; set; } public string value { get; set; } }
