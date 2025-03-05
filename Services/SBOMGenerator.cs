@@ -430,14 +430,43 @@ public class SBOMGenerator
                     // 🔥 Ensure vulnerabilities are stored in _sbomVulnerabilities
                     foreach (var vuln in cveData.vulnerabilities)
                     {
+                        var ratings = new List<VulnerabilityRating>();
+
+                        // 🔥 Extract CVSS ratings from the API response
+                        if (vuln.cve.metrics != null)
+                        {
+                            if (vuln.cve.metrics.cvssV3 != null && vuln.cve.metrics.cvssV3.Any())
+                            {
+                                var cvss3 = vuln.cve.metrics.cvssV3.First();
+                                ratings.Add(new VulnerabilityRating
+                                {
+                                    method = "CVSSv3.1",
+                                    severity = cvss3.cvssData.baseSeverity,
+                                    score = cvss3.cvssData.baseScore
+                                });
+                            }
+                            else if (vuln.cve.metrics.cvssV2 != null && vuln.cve.metrics.cvssV2.Any())
+                            {
+                                var cvss2 = vuln.cve.metrics.cvssV2.First();
+                                ratings.Add(new VulnerabilityRating
+                                {
+                                    method = "CVSSv2",
+                                    severity = cvss2.cvssData.baseSeverity,
+                                    score = cvss2.cvssData.baseScore
+                                });
+                            }
+                        }
+
                         var sbomVuln = new SBOMVulnerability
                         {
                             id = vuln.cve.id,
                             source = new Source { name = "NVD" },
                             references = vuln.cve.references?.Select(r => new ReferenceEntry { url = r.url }).ToList() ?? new List<ReferenceEntry>(),
-                            affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.bomRef } }, // 🔥 Link vulnerability to correct bom-ref
-                            description = vuln.cve.descriptions?.FirstOrDefault()?.value ?? "No description available"
+                            affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.bomRef } },
+                            description = vuln.cve.descriptions?.FirstOrDefault()?.value ?? "No description available",
+                            ratings = ratings // 🔥 Now correctly stores CVSS ratings
                         };
+
                         collectedVulnerabilities.Add(sbomVuln);
                     }
                 }
@@ -709,28 +738,6 @@ public class SBOMGenerator
     }
 
 
-    //private string GenerateCycloneDxSBOM(bool sampleMode)
-    //{
-    //    var selectedComponents = sampleMode ? _sbomComponents.Take(1).ToList() : _sbomComponents;
-    //    var selectedVulnerabilities = sampleMode ? _sbomVulnerabilities.Take(3).ToList() : _sbomVulnerabilities;
-
-    //    var sbom = new CycloneDxSBOM
-    //    {
-    //        bomFormat = "CycloneDX",
-    //        specVersion = "1.4",
-    //        serialNumber = "urn:uuid:" + Guid.NewGuid(),
-    //        version = 1,
-    //        metadata = new Metadata
-    //        {
-    //            timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"), // Enforce timestamp format
-    //            tools = new List<Tool> { new Tool { vendor = "Custom SBOM Generator", name = "SBOMGen", version = "1.0.0" } }
-    //        },
-    //        components = selectedComponents,
-    //        vulnerabilities = selectedVulnerabilities
-    //    };
-
-    //    return JsonConvert.SerializeObject(sbom, Formatting.Indented);
-    //}
     private string GenerateCycloneDxSBOM()
     {
         var sbom = new CycloneDxSBOM
@@ -827,7 +834,15 @@ public class SBOMVulnerability
     public List<ReferenceEntry> references { get; set; }
     public List<AffectedComponent> affects { get; set; }
     public string description { get; set; }
+    public List<VulnerabilityRating> ratings { get; set; }  // 🔥 NEW FIELD
 }
+public class VulnerabilityRating
+{
+    public string method { get; set; }   // Example: "CVSSv3.1"
+    public string severity { get; set; } // Example: "High"
+    public double score { get; set; }    // Example: 7.8
+}
+
 
 public class CycloneDxSBOM { public string bomFormat { get; set; } public string specVersion { get; set; } public string serialNumber { get; set; } public int version { get; set; } public Metadata metadata { get; set; } public List<SBOMComponent> components { get; set; } public List<SBOMVulnerability> vulnerabilities { get; set; } }
 //public class SBOMComponent { public string bomRef { get; set; } public string type { get; set; } public string name { get; set; } public string version { get; set; } public Supplier supplier { get; set; } public List<HashEntry> hashes { get; set; } public string purl { get; set; } }
@@ -859,7 +874,31 @@ public class CVEDetails
 {
     public string id { get; set; }
     public List<CVEDescription> descriptions { get; set; }
-    public List<CVEReference> references { get; set; }  // 🔥 FIX: Add missing references
+    public List<CVEReference> references { get; set; }
+    public CVEMetrics metrics { get; set; }  // 🔥 NEW FIELD for CVSS scores
+}
+public class CVEMetrics
+{
+    [JsonProperty("cvssMetricV31")]
+    public List<CVSSv3> cvssV3 { get; set; }
+
+    [JsonProperty("cvssMetricV2")]
+    public List<CVSSv2> cvssV2 { get; set; }
+}
+public class CVSSv3
+{
+    public CVSSData cvssData { get; set; }
+}
+
+public class CVSSv2
+{
+    public CVSSData cvssData { get; set; }
+}
+
+public class CVSSData
+{
+    public double baseScore { get; set; }
+    public string baseSeverity { get; set; }
 }
 
 public class CVEReference
