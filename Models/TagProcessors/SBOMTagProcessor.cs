@@ -1,5 +1,6 @@
 ﻿using DocumentProcessor.Services;
 using Microsoft.Extensions.Configuration;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -31,7 +32,10 @@ namespace DocumentProcessor.Models.TagProcessors
                    .Build();
             _sbomGenerator = new SBOMGenerator(tagContent, configuration);
             string sbomJson = await _sbomGenerator.GenerateSBOMAsync();
-            File.WriteAllText("C:\\temp\\sbom.json", sbomJson);
+            string executionDirectory = Path.GetDirectoryName(options.OutputPath);
+            string sbomFilePath = Path.Combine(executionDirectory, "sbom.json");
+            File.WriteAllText(sbomFilePath, sbomJson);
+            Console.WriteLine("SBOM.JSON File saved to : " + sbomFilePath);
             return ProcessingResult.FromText(sbomJson);
 
 

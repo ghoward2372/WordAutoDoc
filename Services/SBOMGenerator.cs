@@ -36,11 +36,74 @@ public class SBOMGenerator
         ProcessFiles();
         await FetchCVEDataAsync();
         // Generate Sample SBOM with 3 Entries First
-        string sampleSbom = GenerateCycloneDxSBOM(true);
-        File.WriteAllText(@"C:\temp\sample_sbom.json", sampleSbom);
-        Console.WriteLine("Sample SBOM saved: C:\\temp\\sample_sbom.json");
+        string sampleSbom = GenerateCycloneDxSBOM(false);
         return sampleSbom;
     }
+
+    private string GetProductName(string filePath)
+    {
+        try
+        {
+            var fileVersionInfo = FileVersionInfo.GetVersionInfo(filePath);
+            return !string.IsNullOrWhiteSpace(fileVersionInfo.ProductName) ? fileVersionInfo.ProductName : Path.GetFileNameWithoutExtension(filePath);
+        }
+        catch
+        {
+            return Path.GetFileNameWithoutExtension(filePath); // Fallback to filename
+        }
+    }
+
+    private string GetMajorVersion(string productVersion)
+    {
+        if (string.IsNullOrEmpty(productVersion))
+            return "Unknown";
+
+        // Remove metadata after "+"
+        productVersion = productVersion.Split('+')[0];
+
+        // Extract first two segments (major.minor)
+        var versionParts = productVersion.Split('.');
+        return versionParts.Length >= 2 ? $"{versionParts[0]}.{versionParts[1]}" : productVersion;
+    }
+
+    private string NormalizeProductName(string productName, string majorVersion)
+    {
+        if (string.IsNullOrWhiteSpace(productName))
+            return "Unknown";
+
+        string cleanedProduct = productName.Trim();
+
+        // Ensure the major version is part of the product name
+        if (!cleanedProduct.Contains(majorVersion))
+        {
+            cleanedProduct = $"{cleanedProduct} {majorVersion}";
+        }
+
+        Console.WriteLine($"🔍 Normalized Product Name: '{productName}' → '{cleanedProduct}' (Major Version: {majorVersion})");
+        return cleanedProduct;
+    }
+
+
+
+
+    private string NormalizeVendorName(string vendor)
+    {
+        if (string.IsNullOrEmpty(vendor)) return "Unknown";
+
+        // Common vendor name corrections based on NVD database names
+        var vendorMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "Microsoft Corporation", "Microsoft" },
+        { "Google LLC", "Google" },
+        { "Apple Inc.", "Apple" },
+        { "Oracle America, Inc.", "Oracle" },
+        { "IBM Corporation", "IBM" },
+        { "Red Hat, Inc.", "Red Hat" }
+    };
+
+        return vendorMap.ContainsKey(vendor) ? vendorMap[vendor] : vendor;
+    }
+
 
     private void ProcessFiles()
     {
@@ -51,33 +114,57 @@ public class SBOMGenerator
             return;
         }
 
+        bool dotNetDetected = false;
+
         foreach (var file in directory.EnumerateFiles("*", SearchOption.AllDirectories))
         {
             try
             {
                 var fileInfo = new FileInfo(file.FullName);
-                var fileVersion = GetFileVersion(file.FullName);
+                var productVersion = GetProductVersion(file.FullName);
+                var majorVersion = GetMajorVersion(productVersion);
                 var digitalSignature = GetDigitalSignature(file.FullName);
                 var hash = ComputeFileHash(file.FullName);
-                var supplier = ExtractCN(digitalSignature?.Signer) ?? "Unknown";
+
+                string rawVendor = ExtractCN(digitalSignature?.signer) ?? "Unknown";
+                string vendor = NormalizeVendorName(rawVendor);
+
+                string rawProduct = GetProductName(file.FullName);
+                string product = NormalizeProductName(rawProduct, majorVersion);
 
                 var component = new SBOMComponent
                 {
-                    bomRef = GeneratePurl(fileInfo.Name, fileVersion, supplier),
+                    bomRef = GeneratePurl(product, majorVersion, vendor),
                     type = "file",
-                    name = fileInfo.Name,
-                    version = fileVersion,
-                    supplier = new Supplier { name = supplier },
+                    name = product,
+                    version = majorVersion,
+                    supplier = new Supplier { name = vendor },
                     hashes = new List<HashEntry> { new HashEntry { alg = "SHA-256", content = hash } },
-                    purl = GeneratePurl(fileInfo.Name, fileVersion, supplier)
+                    purl = GeneratePurl(product, majorVersion, vendor)
                 };
 
-                if (!string.IsNullOrEmpty(supplier) && !_thirdPartyVendors.Contains(supplier))
-                {
-                    _thirdPartyVendors.Add(supplier);
-                }
-
                 _sbomComponents.Add(component);
+
+                // 🔥 Detect the ACTUAL runtime config file
+                if (!dotNetDetected && fileInfo.Name.EndsWith(".runtimeconfig.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    string frameworkVersion = GetDotNetVersionFromRuntimeConfig(file.FullName);
+                    if (!string.IsNullOrEmpty(frameworkVersion))
+                    {
+                        Console.WriteLine($"✅ Detected .NET Framework: {frameworkVersion}");
+                        _sbomComponents.Add(new SBOMComponent
+                        {
+                            bomRef = GeneratePurl("Microsoft .NET", frameworkVersion, "Microsoft"),
+                            type = "framework",
+                            name = "Microsoft .NET",
+                            version = frameworkVersion,
+                            supplier = new Supplier { name = "Microsoft" },
+                            hashes = new List<HashEntry>(),
+                            purl = GeneratePurl("Microsoft .NET", frameworkVersion, "Microsoft")
+                        });
+                        dotNetDetected = true;
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -86,50 +173,344 @@ public class SBOMGenerator
         }
     }
 
+
+
+
+
+
+    private string GetProductVersion(string filePath)
+    {
+        try
+        {
+            var fileVersionInfo = FileVersionInfo.GetVersionInfo(filePath);
+            return !string.IsNullOrWhiteSpace(fileVersionInfo.ProductVersion) ? fileVersionInfo.ProductVersion : "Unknown";
+        }
+        catch
+        {
+            return "Unknown";
+        }
+    }
+
+    private async Task<string> GetCorrectCPEForDotNet(string dotNetVersion, string rawProductName)
+    {
+        try
+        {
+            // ✅ Uses NormalizeProductName with both parameters
+            string productName = NormalizeProductName(rawProductName, dotNetVersion);
+            string keywordQuery = $"{productName} {dotNetVersion}";
+
+            string cpeSearchUrl = $"https://services.nvd.nist.gov/rest/json/cpes/2.0?keywordSearch={Uri.EscapeDataString(keywordQuery)}";
+
+            Console.WriteLine($"🔍 Searching for CPE: {keywordQuery}");
+
+            var cpeRequest = new HttpRequestMessage(HttpMethod.Get, cpeSearchUrl);
+            cpeRequest.Headers.Add("apiKey", _nistApiKey);
+            cpeRequest.Headers.Add("User-Agent", "SBOM-Generator/1.0");
+
+            var cpeResponse = await _httpClient.SendAsync(cpeRequest);
+            cpeResponse.EnsureSuccessStatusCode();
+
+            var cpeResponseString = await cpeResponse.Content.ReadAsStringAsync();
+            var cpeData = JsonConvert.DeserializeObject<CPEApiResponse>(cpeResponseString);
+
+            if (cpeData?.products != null && cpeData.products.Any())
+            {
+                foreach (var product in cpeData.products)
+                {
+                    string foundCpe = product.cpe.cpeName;
+
+                    if (foundCpe.Contains(".net", StringComparison.OrdinalIgnoreCase) &&
+                        foundCpe.Contains(dotNetVersion) &&
+                        foundCpe.StartsWith("cpe:2.3:a:microsoft"))
+                    {
+                        Console.WriteLine($"✅ Found valid CPE: {foundCpe}");
+                        return foundCpe; // ✅ Use exact CPE Name
+                    }
+                }
+            }
+
+            Console.WriteLine($"❌ No exact CPE match found for .NET {dotNetVersion}");
+            return "Unknown";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Error retrieving CPE: {ex.Message}");
+            return "Unknown";
+        }
+    }
+
+
+
+
+
+
     private async Task FetchCVEDataAsync()
     {
         foreach (var component in _sbomComponents)
         {
             try
             {
-                var requestUrl = $"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={component.supplier.name}";
-                var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
-                request.Headers.Add("apiKey", _nistApiKey);
+                // ✅ Restore correct product name normalization
+                string cleanedProductName = NormalizeProductName(component.name, component.version);
 
-                var response = await _httpClient.SendAsync(request);
-                response.EnsureSuccessStatusCode();
-
-                var cveResponse = await response.Content.ReadAsStringAsync();
-                var cveData = JsonConvert.DeserializeObject<CVEResponse>(cveResponse);
-
-                if (cveData?.vulnerabilities != null)
+                // 🔍 If this is a .NET framework, find the correct CPE dynamically
+                string bestCpe = "Unknown";
+                if (cleanedProductName.ToLower().Contains("microsoft .net"))
                 {
-                    var limitedCves = cveData.vulnerabilities.Take(3); // Limit total vulnerabilities to 3
-
-                    foreach (var v in limitedCves)
-                    {
-                        _sbomVulnerabilities.Add(new SBOMVulnerability
-                        {
-                            id = v.cve.id,
-                            source = new Source { name = "NVD" },
-                            references = new List<ReferenceEntry>
-                            {
-                                new ReferenceEntry { type = "vulnerability", url = $"https://nvd.nist.gov/vuln/detail/{v.cve.id}" }
-                            },
-                            affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.purl } },
-                            description = v.cve.descriptions?.FirstOrDefault()?.value ?? "No description available"
-                        });
-
-                        if (_sbomVulnerabilities.Count >= 3) break; // Stop at exactly 3 vulnerabilities
-                    }
+                    bestCpe = await GetCorrectCPEForDotNet(component.version, cleanedProductName);
                 }
+
+                // 🚨 Skip if no valid CPE was found
+                if (bestCpe == "Unknown")
+                {
+                    Console.WriteLine($"⚠️ No valid CPE found for {component.name}, skipping CVE query.");
+                    continue;
+                }
+
+                Console.WriteLine($"✅ Found CPE: {bestCpe} for {component.name}");
+
+                // 🔍 **Correctly format the CVE query**
+                string encodedCpe = Uri.EscapeDataString(bestCpe);
+                var cveUrl = $"https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName={encodedCpe}";
+
+                Console.WriteLine($"🔍 Querying CVEs for CPE: {bestCpe}");
+                Console.WriteLine($"🛠️ FINAL URL: {cveUrl}");
+
+                var cveRequest = new HttpRequestMessage(HttpMethod.Get, cveUrl);
+                cveRequest.Headers.Add("apiKey", _nistApiKey);
+                cveRequest.Headers.Add("User-Agent", "SBOM-Generator/1.0");
+
+                var cveResponse = await _httpClient.SendAsync(cveRequest);
+
+                if (cveResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    Console.WriteLine($"❌ No CVEs found for CPE: {bestCpe} (404 Not Found).");
+                    continue;
+                }
+
+                cveResponse.EnsureSuccessStatusCode();
+
+                var cveResponseString = await cveResponse.Content.ReadAsStringAsync();
+                var cveData = JsonConvert.DeserializeObject<CVEResponse>(cveResponseString);
+
+                if (cveData?.vulnerabilities != null && cveData.vulnerabilities.Any())
+                {
+                    Console.WriteLine($"✅ Found {cveData.vulnerabilities.Count} vulnerabilities for {component.name}");
+                }
+                else
+                {
+                    Console.WriteLine($"✅ No vulnerabilities found for CPE: {bestCpe}");
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                Console.WriteLine($"⚠️ HTTP Error fetching CVEs: {httpEx.Message}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error fetching CVE data for {component.supplier.name}: {ex.Message}");
+                Console.WriteLine($"⚠️ Unexpected Error fetching CVEs: {ex.Message}");
             }
         }
     }
+
+
+
+
+
+
+
+
+    private string GetDotNetVersionFromRuntimeConfig(string filePath)
+    {
+        try
+        {
+            // 🔥 Ensure we are working with a valid directory
+            string? installDirectory = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrWhiteSpace(installDirectory) || !Directory.Exists(installDirectory))
+            {
+                Console.WriteLine($"❌ Invalid install directory: {installDirectory}");
+                return string.Empty;
+            }
+
+            // 🔥 Find the correct .runtimeconfig.json file in the same directory as the executable
+            string[] runtimeConfigFiles = Directory.GetFiles(installDirectory, "*.runtimeconfig.json", SearchOption.TopDirectoryOnly);
+
+            if (runtimeConfigFiles.Length == 0)
+            {
+                Console.WriteLine("❌ No .runtimeconfig.json files found.");
+                return string.Empty;
+            }
+
+            foreach (var configFile in runtimeConfigFiles)
+            {
+                string jsonContent = File.ReadAllText(configFile);
+                dynamic json = JsonConvert.DeserializeObject(jsonContent);
+
+                if (json?.runtimeOptions?.tfm != null)
+                {
+                    string version = json.runtimeOptions.tfm.ToString().Replace("net", "").Trim();
+                    Console.WriteLine($"✅ Detected .NET Version: {version} from {configFile}");
+                    return version;
+                }
+            }
+
+            Console.WriteLine("❌ No valid .NET version found in runtime config files.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Error reading .NET version: {ex.Message}");
+        }
+
+        return string.Empty;
+    }
+
+
+
+
+
+    private string GetDotNetVersionFromCommand()
+    {
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    Arguments = "--list-runtimes",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            // Extract latest .NET version from output
+            var lines = output.Split('\n');
+            foreach (var line in lines.Reverse())
+            {
+                if (line.Contains("Microsoft.NETCore.App"))
+                {
+                    return line.Split(' ')[1]; // Extract version
+                }
+            }
+        }
+        catch
+        {
+            return "Unknown";
+        }
+
+        return "Unknown";
+    }
+
+
+    private string DetectDotNetVersion(string exePath)
+    {
+        try
+        {
+            var fileVersionInfo = FileVersionInfo.GetVersionInfo(exePath);
+
+            // Check if it is a .NET Core/.NET 5+ app
+            if (!string.IsNullOrWhiteSpace(fileVersionInfo.ProductName) && fileVersionInfo.ProductName.Contains(".NET"))
+            {
+                return fileVersionInfo.ProductVersion;
+            }
+
+            // Check CLR runtime version (may help for some .NET applications)
+            if (!string.IsNullOrWhiteSpace(fileVersionInfo.FileDescription) && fileVersionInfo.FileDescription.Contains("CLR"))
+            {
+                return fileVersionInfo.FileVersion;
+            }
+        }
+        catch
+        {
+            return "Unknown";
+        }
+
+        return "Unknown";
+    }
+
+    private string GetDotNetVersionFromPEHeaders(string exePath)
+    {
+        try
+        {
+            var fileVersionInfo = FileVersionInfo.GetVersionInfo(exePath);
+
+            // .NET Core / .NET 5+ apps store runtime version in ProductName
+            if (!string.IsNullOrWhiteSpace(fileVersionInfo.ProductName) && fileVersionInfo.ProductName.Contains(".NET"))
+            {
+                return fileVersionInfo.ProductVersion;
+            }
+
+            // Check CLR runtime version for older .NET Framework
+            if (!string.IsNullOrWhiteSpace(fileVersionInfo.FileDescription) && fileVersionInfo.FileDescription.Contains("CLR"))
+            {
+                return fileVersionInfo.FileVersion;
+            }
+        }
+        catch
+        {
+            return "Unknown";
+        }
+
+        return "Unknown";
+    }
+
+    private bool IsDotNetAssembly(string exePath)
+    {
+        try
+        {
+            using (var stream = new FileStream(exePath, FileMode.Open, FileAccess.Read))
+            using (var reader = new BinaryReader(stream))
+            {
+                stream.Seek(0x3C, SeekOrigin.Begin);
+                int peHeaderOffset = reader.ReadInt32();
+                stream.Seek(peHeaderOffset + 4, SeekOrigin.Begin);
+
+                ushort machineType = reader.ReadUInt16();
+                ushort sections = reader.ReadUInt16();
+                stream.Seek(92, SeekOrigin.Current);
+
+                uint clrHeaderRVA = reader.ReadUInt32();
+
+                return clrHeaderRVA != 0;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+
+    private string GetDotNetVersionFromRuntimeDll()
+    {
+        try
+        {
+            var coreclrPaths = new[]
+            {
+            @"C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.0\coreclr.dll",
+            @"C:\Windows\Microsoft.NET\Framework\v4.0.30319\clr.dll",
+            @"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\clr.dll"
+        };
+
+            foreach (var path in coreclrPaths)
+            {
+                if (File.Exists(path))
+                {
+                    var fileVersion = FileVersionInfo.GetVersionInfo(path);
+                    return fileVersion.ProductVersion.Split('+')[0]; // Remove metadata
+                }
+            }
+        }
+        catch { }
+
+        return "Unknown";
+    }
+
 
     private string GenerateCycloneDxSBOM(bool sampleMode)
     {
@@ -162,7 +543,7 @@ public class SBOMGenerator
         try
         {
             var cert = new X509Certificate2(filePath);
-            return new DigitalSignatureInfo { Signer = cert.Subject, Algorithm = cert.SignatureAlgorithm.FriendlyName };
+            return new DigitalSignatureInfo { signer = cert.Subject, algorithm = cert.SignatureAlgorithm.FriendlyName };
         }
         catch
         {
@@ -189,7 +570,22 @@ public class SBOMGenerator
     }
 }
 
-public class DigitalSignatureInfo { public string Signer { get; set; } public string Algorithm { get; set; } }
+public class CPEApiResponse
+{
+    public List<CPEProduct> products { get; set; }
+}
+
+public class CPEProduct
+{
+    public CPE cpe { get; set; }
+}
+
+public class CPE
+{
+    public string cpeName { get; set; }
+}
+
+public class DigitalSignatureInfo { public string signer { get; set; } public string algorithm { get; set; } }
 public class HashEntry { public string alg { get; set; } public string content { get; set; } }
 
 public class Supplier { public string name { get; set; } }
