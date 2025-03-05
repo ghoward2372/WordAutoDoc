@@ -71,7 +71,8 @@ public class SBOMGenerator
         if (string.IsNullOrWhiteSpace(productName))
             return "Unknown";
 
-        string cleanedProduct = productName.Trim();
+        // 🔥 Remove trademark symbols but keep everything else intact
+        string cleanedProduct = Regex.Replace(productName, "[\u00AE\u2122]", "").Trim();
 
         // Ensure the major version is part of the product name
         if (!cleanedProduct.Contains(majorVersion))
@@ -90,7 +91,10 @@ public class SBOMGenerator
     {
         if (string.IsNullOrEmpty(vendor)) return "Unknown";
 
-        // Common vendor name corrections based on NVD database names
+        // 🔥 Remove trademark symbols (® ™) but keep everything else intact
+        string cleanedVendor = Regex.Replace(vendor, "[\u00AE\u2122]", "").Trim();
+
+        // 🔥 Keep all existing vendor name corrections
         var vendorMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         { "Microsoft Corporation", "Microsoft" },
@@ -101,8 +105,9 @@ public class SBOMGenerator
         { "Red Hat, Inc.", "Red Hat" }
     };
 
-        return vendorMap.ContainsKey(vendor) ? vendorMap[vendor] : vendor;
+        return vendorMap.ContainsKey(cleanedVendor) ? vendorMap[cleanedVendor] : cleanedVendor;
     }
+
 
 
     private void ProcessFiles()
