@@ -2,7 +2,7 @@
   "profiles": {
     "DocumentProcessor": {
       "commandName": "Project",
-      "commandLineArgs": "\"C:\\windows\"\r\nc:\\temp\\sb.json\r\n/sbom\r\n"
+      "commandLineArgs": "\"C:\\source\\apt\\AviatorProficiencyTracker\\AviatorProficiencyTracker\\bin\\debug\\net8.0\"\r\nc:\\temp\\sb.json\r\n/sbom\r\n"
     }
   }
 }
