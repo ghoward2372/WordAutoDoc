@@ -142,7 +142,11 @@ public class SBOMGenerator
 
                 string rawProduct = GetProductName(file.FullName);
                 string product = NormalizeProductName(rawProduct, majorVersion);
-
+                //if (string.Compare(vendor, "unknown", true) == 0 && product.ToLower().Contains("unknown"))
+                //{
+                //    Console.WriteLine("Unknown Product and Vendor, not adding to SBOM.");
+                //    continue;
+                //}
                 var component = new SBOMComponent
                 {
                     type = "file",
@@ -441,7 +445,7 @@ public class SBOMGenerator
                                 ratings.Add(new VulnerabilityRating
                                 {
                                     method = "CVSSv3.1",
-                                    severity = cvss3.cvssData.baseSeverity,
+                                    severity = cvss3.cvssData.baseSeverity ?? "None",
                                     score = cvss3.cvssData.baseScore
                                 });
                             }
@@ -451,7 +455,7 @@ public class SBOMGenerator
                                 ratings.Add(new VulnerabilityRating
                                 {
                                     method = "CVSSv2",
-                                    severity = cvss2.cvssData.baseSeverity,
+                                    severity = cvss2.cvssData.baseSeverity ?? "None",
                                     score = cvss2.cvssData.baseScore
                                 });
                             }
@@ -461,7 +465,7 @@ public class SBOMGenerator
                         {
                             id = vuln.cve.id,
                             source = new Source { name = "NVD" },
-                            references = vuln.cve.references?.Select(r => new ReferenceEntry { url = r.url }).ToList() ?? new List<ReferenceEntry>(),
+                            references = vuln.cve.references?.Select(r => new ReferenceEntry { url = r.url, type = "cve" }).ToList() ?? new List<ReferenceEntry>(),
                             affects = new List<AffectedComponent> { new AffectedComponent { @ref = component.bomRef } },
                             description = vuln.cve.descriptions?.FirstOrDefault()?.value ?? "No description available",
                             ratings = ratings // 🔥 Now correctly stores CVSS ratings
@@ -903,6 +907,7 @@ public class CVSSData
 
 public class CVEReference
 {
+    public string type { get; set; } = "cve";
     public string url { get; set; }
 }
 

@@ -2,7 +2,7 @@
   "profiles": {
     "DocumentProcessor": {
       "commandName": "Project",
-      "commandLineArgs": "c:\\temp\\Bullet_test1.docx\r\nc:\\temp\\output.docx\r\n"
+      "commandLineArgs": "\"C:\\windows\"\r\nc:\\temp\\sb.json\r\n/sbom\r\n"
     }
   }
 }
