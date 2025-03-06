@@ -29,20 +29,32 @@ namespace DocumentProcessor.Models.TagProcessors
         {
             try
             {
+
+                var parts = tagContent.Split('|');
+
+
+                string qID = parts[0];
+                var requestedColumns = (parts.Length == 2 && parts[1].StartsWith("Columns:"))
+                ? parts[1].Substring("Columns:".Length)
+                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                 .Select(x => x.Trim())
+                 .ToList()
+                  : new List<string> { "*" };
+
                 Console.WriteLine($"Processing query tag: {tagContent}");
 
-                if (!Guid.TryParse(tagContent, out var queryId))
+                if (!Guid.TryParse(qID, out var queryId))
                 {
                     return ProcessingResult.FromText("Invalid query ID format. Expected a GUID.");
                 }
 
                 // First get the query definition to determine columns
-                var query = await _azureDevOpsService.GetQueryAsync(tagContent);
+                var query = await _azureDevOpsService.GetQueryAsync(qID);
                 if (query?.Columns == null || !query.Columns.Any())
                     return ProcessingResult.FromText("No columns defined in query.");
 
                 // Execute the query to get work item references
-                var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
+                var queryResult = await _azureDevOpsService.ExecuteQueryAsync(qID);
                 if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
                     return ProcessingResult.FromText("No results found for query.");
 
@@ -61,7 +73,8 @@ namespace DocumentProcessor.Models.TagProcessors
                 var tableData = new List<string[]>
                 {
                     // Header row using column names from query
-                    query.Columns.Select(c => c.Name).ToArray()
+                    query.Columns.Where(col => requestedColumns.Contains("*") || requestedColumns.Contains(col.Name))
+                    .Select(c => c.Name).ToArray()
                 };
 
                 // Add one row per work item
@@ -93,20 +106,31 @@ namespace DocumentProcessor.Models.TagProcessors
         {
             try
             {
+                var parts = tagContent.Split('|');
+
+
+                string qID = parts[0];
+                var requestedColumns = (parts.Length == 2 && parts[1].StartsWith("Columns:"))
+                ? parts[1].Substring("Columns:".Length)
+                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                 .Select(x => x.Trim())
+                 .ToList()
+                  : new List<string> { "*" };
+
                 Console.WriteLine($"Processing query tag as list: {tagContent}");
 
-                if (!Guid.TryParse(tagContent, out var queryId))
+                if (!Guid.TryParse(qID, out var queryId))
                 {
                     return ProcessingResult.FromText("Invalid query ID format. Expected a GUID.");
                 }
 
                 // Get the query definition to determine columns
-                var query = await _azureDevOpsService.GetQueryAsync(tagContent);
+                var query = await _azureDevOpsService.GetQueryAsync(qID);
                 if (query?.Columns == null || !query.Columns.Any())
                     return ProcessingResult.FromText("No columns defined in query.");
 
                 // Execute the query to get work item references
-                var queryResult = await _azureDevOpsService.ExecuteQueryAsync(tagContent);
+                var queryResult = await _azureDevOpsService.ExecuteQueryAsync(qID);
                 if (queryResult?.WorkItems == null || !queryResult.WorkItems.Any())
                     return ProcessingResult.FromText("No results found for query.");
 
@@ -126,9 +150,11 @@ namespace DocumentProcessor.Models.TagProcessors
                 foreach (var workItem in workItems)
                 {
                     var bulletText = string.Join(" - ", query.Columns
+                        .Where(col => requestedColumns.Contains("*") || requestedColumns.Contains(col.Name))
                         .Select(col => GetFieldValue(workItem.Fields, col.ReferenceName)));
                     listItems.Add(bulletText);
                 }
+
 
                 // Convert the list to Word XML format
                 var listXml = ConvertPlainTextListToWordFormat(listItems, 1);
