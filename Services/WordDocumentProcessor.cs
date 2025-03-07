@@ -380,6 +380,7 @@ namespace DocumentProcessor.Services
                         {
                             /// Reference Table tags don't do anything here....
                             processedContent = new ProcessingResult();
+                            processedContent.ProcessedText = "[[ReferenceTable:true]]";
                         }
 
                         // If the tag processor returned a table, use it directly
@@ -415,8 +416,8 @@ namespace DocumentProcessor.Services
                 Console.WriteLine($"Source: {_options.SourcePath}");
 
                 // Create a temporary copy of the source document.
-                string finalFileOutputName = Path.GetDirectoryName(_options.SourcePath) + "\\" + Path.GetFileNameWithoutExtension(_options.SourcePath) + "_FINAL.docx";
-                File.Copy(_options.SourcePath, finalFileOutputName, true);
+                string finalFileOutputName = Path.GetDirectoryName(_options.OutputPath) + "\\" + Path.GetFileNameWithoutExtension(_options.OutputPath) + "_FINAL.docx";
+                File.Copy(_options.OutputPath, finalFileOutputName, true);
 
                 // Open the temporary copy for post-processing.
                 using (var doc = WordprocessingDocument.Open(finalFileOutputName, true))
