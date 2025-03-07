@@ -40,8 +40,7 @@ namespace DocumentProcessor.Services
                 _tagProcessors.Add("QueryID", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("QueryAsList", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("SBOM", new SBOMTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
-
-
+                _tagProcessors.Add("ReferenceTable", new ReferenceTableTagProcessor(options.HtmlConverter, options.ReferenceDocProcessor));
             }
         }
 
@@ -61,11 +60,15 @@ namespace DocumentProcessor.Services
                     var body = mainPart.Document?.Body ?? throw new InvalidOperationException("Document body is missing");
 
                     InsertNumberingDefinition(mainPart);
-                    await ProcessDocumentContentAsync(body, mainPart);
+                    await ProcessDocumentContentAsync(body, mainPart, false);
                     mainPart.Document.Save();
+
                 }
 
                 Console.WriteLine("\n=== Document Processing Complete ===");
+
+
+                await PostProcessDocumentAsync();
             }
             catch (Exception ex)
             {
@@ -114,9 +117,7 @@ namespace DocumentProcessor.Services
         }
 
 
-
-
-        private async Task ProcessDocumentContentAsync(Body body, MainDocumentPart mainDocument)
+        private async Task ProcessDocumentContentAsync(Body body, MainDocumentPart mainDocument, bool postProcessing)
         {
             var paragraphsToProcess = body.Elements<Paragraph>().ToList();
             Console.WriteLine($"Processing {paragraphsToProcess.Count} paragraphs");
@@ -126,7 +127,15 @@ namespace DocumentProcessor.Services
                 var text = paragraph.InnerText;
                 Console.WriteLine($"\nProcessing paragraph text: {text}");
 
-                var processed = await ProcessTextAsync(text);
+                ProcessingResult processed = null;
+                if (postProcessing != false)
+                {
+                    processed = await PostProcessingProcessText(text);
+                }
+                else
+                {
+                    processed = await ProcessTextAsync(text);
+                }
 
                 if (processed.IsTable && processed.TableElement != null)
                 {
@@ -363,9 +372,14 @@ namespace DocumentProcessor.Services
                                 processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
                             }
                         }
-                        else
+                        else if (tagProcessor.Key != "ReferenceTable")
                         {
                             processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
+                        }
+                        else
+                        {
+                            /// Reference Table tags don't do anything here....
+                            processedContent = new ProcessingResult();
                         }
 
                         // If the tag processor returned a table, use it directly
@@ -386,9 +400,102 @@ namespace DocumentProcessor.Services
                 }
             }
 
+            // Process for reference docs
+            _options.ReferenceDocProcessor.ProcessText(text);
+
             // Process acronyms only for non-table content
             result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
             return result;
+        }
+        public async Task PostProcessDocumentAsync()
+        {
+            try
+            {
+                Console.WriteLine($"\n=== Starting Document Post-Processing ===");
+                Console.WriteLine($"Source: {_options.SourcePath}");
+
+                // Create a temporary copy of the source document.
+                string finalFileOutputName = Path.GetDirectoryName(_options.SourcePath) + "\\" + Path.GetFileNameWithoutExtension(_options.SourcePath) + "_FINAL.docx";
+                File.Copy(_options.SourcePath, finalFileOutputName, true);
+
+                // Open the temporary copy for post-processing.
+                using (var doc = WordprocessingDocument.Open(finalFileOutputName, true))
+                {
+                    var postMainPart = doc.MainDocumentPart
+                        ?? throw new InvalidOperationException("Main document part is missing");
+                    var postBody = postMainPart.Document?.Body
+                        ?? throw new InvalidOperationException("Document body is missing");
+
+                    await ProcessDocumentContentAsync(postBody, postMainPart, true);
+                    postMainPart.Document.Save();
+                }
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+
+                // Replace the original file with the updated temporary file.
+
+                Console.WriteLine("\n=== Document Post-Processing Complete ===");
+
+                Console.WriteLine("\n=== Document Generation Complete. Finished File : " + finalFileOutputName);
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing document: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task<ProcessingResult> PostProcessingProcessText(string text)
+        {
+            var result = ProcessingResult.FromText(text);
+
+            foreach (var tagProcessor in _tagProcessors)
+            {
+                var pattern = RegexPatterns.GetTagPattern(tagProcessor.Key);
+                var matches = pattern.Matches(text);
+
+                foreach (Match match in matches)
+                {
+                    try
+                    {
+                        Console.WriteLine($"\nPost Processing {tagProcessor.Key} tag: {match.Value}");
+                        var tagContent = match.Groups[1].Value;
+                        ProcessingResult processedContent;
+
+                        if (tagProcessor.Value is ReferenceTableTagProcessor refTagProcessor)
+                        {
+                            processedContent = await tagProcessor.Value.ProcessTagAsync(tagContent, _options);
+
+
+                            // If the tag processor returned a table, use it directly
+                            if (processedContent.IsTable && processedContent.TableElement != null)
+                            {
+                                Console.WriteLine("Table found in processed content");
+                                return processedContent;
+                            }
+
+                            // Otherwise, replace the tag with the processed text
+                            text = text.Replace(match.Value, processedContent.ProcessedText);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error processing {tagProcessor.Key} tag: {ex.Message}");
+                        text = text.Replace(match.Value, $"[Error processing {tagProcessor.Key} tag: {ex.Message}]");
+                    }
+                }
+            }
+
+            // Process for reference docs
+            _options.ReferenceDocProcessor.ProcessText(text);
+
+            // Process acronyms only for non-table content
+            result.ProcessedText = _options.AcronymProcessor.ProcessText(text);
+            return result;
+
         }
     }
 }

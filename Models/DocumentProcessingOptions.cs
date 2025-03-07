@@ -10,6 +10,7 @@ namespace DocumentProcessor.Models
         public required IAzureDevOpsService? AzureDevOpsService { get; set; }
         public required AcronymProcessor AcronymProcessor { get; set; }
         public required IHtmlToWordConverter HtmlConverter { get; set; }
+        public required ReferenceDocProcessor ReferenceDocProcessor { get; set; }
 
     }
 }

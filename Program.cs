@@ -113,6 +113,9 @@ namespace DocumentProcessor
                 }
                 var config = ConfigurationService.LoadAzureDevOpsConfig();
 
+                ReferenceDocProcessor refDocProcess = new ReferenceDocProcessor(adoService);
+                refDocProcess.Intialize();
+
                 var options = new DocumentProcessingOptions
                 {
                     SourcePath = sourceFile,
@@ -120,6 +123,7 @@ namespace DocumentProcessor
                     AzureDevOpsService = adoService,
                     AcronymProcessor = new AcronymProcessor(acronymConfig),
                     HtmlConverter = new HtmlToWordConverter(),
+                    ReferenceDocProcessor = refDocProcess,
                     FQDocumentField = config.FQDocumentFieldName
                 };
 

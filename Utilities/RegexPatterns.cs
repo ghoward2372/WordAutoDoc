@@ -12,5 +12,7 @@ namespace DocumentProcessor.Utilities
         }
 
         public static readonly Regex CapitalizedWordsPattern = new Regex(@"\b[A-Z][a-z]*\b", RegexOptions.Compiled);
+
+
     }
 }
