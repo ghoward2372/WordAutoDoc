@@ -41,6 +41,7 @@ namespace DocumentProcessor.Services
                 _tagProcessors.Add("QueryAsList", new QueryTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("SBOM", new SBOMTagProcessor(options.AzureDevOpsService, options.HtmlConverter));
                 _tagProcessors.Add("ReferenceTable", new ReferenceTableTagProcessor(options.HtmlConverter, options.ReferenceDocProcessor));
+                _tagProcessors.Add("GenerateRTM", new RTMTagProcessor(options.AzureDevOpsService));
             }
         }
 
@@ -448,6 +449,7 @@ namespace DocumentProcessor.Services
                 throw;
             }
         }
+
 
         private async Task<ProcessingResult> PostProcessingProcessText(string text)
         {

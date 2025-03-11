@@ -114,6 +114,8 @@ namespace DocumentProcessor
                 var config = ConfigurationService.LoadAzureDevOpsConfig();
 
                 ReferenceDocProcessor refDocProcess = new ReferenceDocProcessor(adoService);
+                RTMGenerator rtmGenerator = new RTMGenerator(adoService);
+
                 refDocProcess.Intialize();
 
                 var options = new DocumentProcessingOptions
@@ -123,6 +125,7 @@ namespace DocumentProcessor
                     AzureDevOpsService = adoService,
                     AcronymProcessor = new AcronymProcessor(acronymConfig),
                     HtmlConverter = new HtmlToWordConverter(),
+                    RTMGenerator = rtmGenerator,
                     ReferenceDocProcessor = refDocProcess,
                     FQDocumentField = config.FQDocumentFieldName
                 };

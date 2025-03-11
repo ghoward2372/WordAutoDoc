@@ -11,6 +11,7 @@ namespace DocumentProcessor.Models
         public required AcronymProcessor AcronymProcessor { get; set; }
         public required IHtmlToWordConverter HtmlConverter { get; set; }
         public required ReferenceDocProcessor ReferenceDocProcessor { get; set; }
+        public required RTMGenerator RTMGenerator { get; set; }
 
     }
 }
