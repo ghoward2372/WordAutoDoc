@@ -12,7 +12,7 @@
     <PackageReference Include="HtmlAgilityPack" Version="1.11.74" />
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.153.0" />
     <PackageReference Include="Microsoft.VisualStudio.Services.Client" Version="16.153.0" />
-    <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.1" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
@@ -31,6 +31,10 @@
     <Compile Remove="DocumentProcessor.Tests\**" />
     <EmbeddedResource Remove="DocumentProcessor.Tests\**" />
     <None Remove="DocumentProcessor.Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Utilities\NumberingHelper.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -25,6 +25,8 @@ namespace DocumentProcessor.Services
         private const string LIST_END_MARKER = "<LIST_END>";
         private int adoBulletIndex = -1;
 
+
+
         public WordDocumentProcessor(DocumentProcessingOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -60,7 +62,7 @@ namespace DocumentProcessor.Services
                     var mainPart = doc.MainDocumentPart ?? throw new InvalidOperationException("Main document part is missing");
                     var body = mainPart.Document?.Body ?? throw new InvalidOperationException("Document body is missing");
 
-                    InsertNumberingDefinition(mainPart);
+                    //InsertNumberingDefinition(mainPart);
                     await ProcessDocumentContentAsync(body, mainPart, false);
                     mainPart.Document.Save();
 
@@ -79,43 +81,91 @@ namespace DocumentProcessor.Services
         }
         private void InsertNumberingDefinition(MainDocumentPart mainPart)
         {
+            // Ensure the numbering part exists.
             var numberingPart = mainPart.NumberingDefinitionsPart;
-
             if (numberingPart == null)
             {
                 numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
                 numberingPart.Numbering = new Numbering();
+                numberingPart.Numbering.Save();
             }
 
-            // 🔹 Ensure we do NOT override existing numbering!
-            int nextAbstractNumId = numberingPart.Numbering.Elements<AbstractNum>()
-                .Select(n => (int)n.AbstractNumberId.Value)
-                .DefaultIfEmpty(0)
-                .Max() + 1;
-
-            // 🔹 Define Bullet List for ADO (Only Bullets, Never Numbers)
-            var existingBulletNum = numberingPart.Numbering.Elements<AbstractNum>()
-                .FirstOrDefault(a => a.Elements<Level>().Any(l => l.NumberingFormat.Val == NumberFormatValues.Bullet));
-
-            if (existingBulletNum == null)
+            // Read the actual numbering.xml content from the numbering part.
+            string numberingXml;
+            using (var stream = numberingPart.GetStream(FileMode.Open, FileAccess.Read))
+            using (var reader = new StreamReader(stream))
             {
-                var abstractNumBullets = new AbstractNum(
-                    new Level(
-                        new NumberingFormat() { Val = NumberFormatValues.Bullet }, // Force bullet list
-                        new LevelText() { Val = "•" }, // Bullet character
-                        new ParagraphProperties(new Indentation() { Left = "720" })
-                    )
-                    { LevelIndex = 0 }
-                )
-                {
-                    AbstractNumberId = nextAbstractNumId
-                };
-
-                numberingPart.Numbering.Append(abstractNumBullets);
+                numberingXml = reader.ReadToEnd();
             }
 
+            // Use a regex to find all existing AbstractNumId values.
+            var absIdRegex = new Regex(@"w:abstractNumId=""(\d+)""");
+            var absMatches = absIdRegex.Matches(numberingXml);
+            int maxAbstractId = absMatches
+                .Cast<Match>()
+                .Select(m => int.Parse(m.Groups[1].Value))
+                .DefaultIfEmpty(0)
+                .Max();
+            // Compute the new AbstractNumId (for testing, you can add an offset if needed)
+            int newAbstractNumId = maxAbstractId + 1;
+            // For testing, if you want to guarantee uniqueness, you might add an offset:
+            // newAbstractNumId += 50;
+
+            // Option: If a bullet abstract definition already exists, you might choose to reuse it.
+            // Here, we always create a new one.
+            var bulletAbstract = new AbstractNum(
+                new Level(
+                    new NumberingFormat() { Val = NumberFormatValues.Bullet },
+                    new LevelText() { Val = "•" },
+                    new ParagraphProperties(new Indentation() { Left = "720" })
+                )
+                { LevelIndex = 0 }
+            )
+            {
+                AbstractNumberId = newAbstractNumId
+            };
+
+            numberingPart.Numbering.Append(bulletAbstract);
+
+            // Now get the current numbering.xml content again so we can compute a new NumId.
+            string numberingXmlForNum;
+            using (var stream = numberingPart.GetStream(FileMode.Open, FileAccess.Read))
+            using (var reader = new StreamReader(stream))
+            {
+                numberingXmlForNum = reader.ReadToEnd();
+            }
+            var numIdRegex = new Regex(@"w:numId=""(\d+)""");
+            var numMatches = numIdRegex.Matches(numberingXmlForNum);
+            int maxNumId = numMatches
+                .Cast<Match>()
+                .Select(m => int.Parse(m.Groups[1].Value))
+                .DefaultIfEmpty(0)
+                .Max();
+            int newNumId = maxNumId + 1;
+
+            // Create the new numbering instance (<w:num>) that references our new abstract bullet definition.
+            var numInstance = new NumberingInstance(new AbstractNumId() { Val = bulletAbstract.AbstractNumberId.Value })
+            {
+                NumberID = newNumId
+            };
+
+            // Set the w16cid:durableId attribute on the <w:num> element properly.
+            numInstance.SetAttribute(new OpenXmlAttribute(
+                prefix: "w16cid",
+                localName: "durableId",
+                namespaceUri: "http://schemas.microsoft.com/office/word/2016/wordml/cid",
+                value: "3434343999800999999" // Replace with a unique value as needed.
+            ));
+
+            numberingPart.Numbering.Append(numInstance);
+
+            // Save the numbering part and the main document.
+            numberingPart.Numbering.Save();
             mainPart.Document.Save();
         }
+
+
+
 
 
         private async Task ProcessDocumentContentAsync(Body body, MainDocumentPart mainDocument, bool postProcessing)
@@ -182,6 +232,59 @@ namespace DocumentProcessor.Services
             }
         }
 
+        // Helper method that returns the bullet numbering instance numId if found,
+        // or returns -1 if none is explicitly defined.
+        private int TryGetExistingBulletNumberingInstance(MainDocumentPart mainPart)
+        {
+            var numberingPart = mainPart.NumberingDefinitionsPart;
+            if (numberingPart == null || numberingPart.Numbering == null)
+                return -1;
+
+            // Look for an existing AbstractNum that has a bullet level.
+            var bulletAbstract = numberingPart.Numbering
+                .Descendants<AbstractNum>()
+                .FirstOrDefault(a => a.Descendants<Level>()
+                    .Any(l => l.NumberingFormat?.Val == NumberFormatValues.Bullet));
+
+            if (bulletAbstract != null)
+            {
+                var bulletInstance = numberingPart.Numbering
+                    .Descendants<NumberingInstance>()
+                    .FirstOrDefault(n => n.AbstractNumId.Val == bulletAbstract.AbstractNumberId.Value);
+                if (bulletInstance != null)
+                    return bulletInstance.NumberID.Value;
+            }
+            return -1;
+        }
+
+
+        private void EnsureListBulletStyleHasNumbering(MainDocumentPart mainPart)
+        {
+            // Make sure the style definitions exist.
+            if (mainPart.StyleDefinitionsPart == null)
+                return;
+
+            var styles = mainPart.StyleDefinitionsPart.Styles;
+            // Note: our document uses "List Bullet" (with a space)
+            var listBulletStyle = styles.Elements<Style>().FirstOrDefault(s => s.StyleId == "List Bullet");
+            if (listBulletStyle != null && listBulletStyle.StyleParagraphProperties != null)
+            {
+                // If numbering properties are not set, add them.
+                if (listBulletStyle.StyleParagraphProperties.NumberingProperties == null)
+                {
+                    // We choose a numbering id (e.g. 108) that we intend to use.
+                    var numProps = new NumberingProperties(
+                        new NumberingLevelReference() { Val = 0 },
+                        new NumberingId() { Val = 108 }
+                    );
+                    listBulletStyle.StyleParagraphProperties.AppendChild(numProps);
+                    styles.Save();
+                }
+            }
+        }
+
+
+
         public void InsertMixedContent(string content, Paragraph paragraph, MainDocumentPart mainDocumentPart)
         {
             try
@@ -228,88 +331,38 @@ namespace DocumentProcessor.Services
 
                             xmlDoc.LoadXml("<root xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">" + trimmedPart + "</root>");
                             var listNodes = xmlDoc.SelectNodes("//w:p", xmlNsManager);
-
                             if (listNodes == null || listNodes.Count == 0)
-                            {
                                 return;
-                            }
 
-                            // 🔹 Retrieve numbering part **once** before the loop
-                            var numberingPart = mainDocumentPart.NumberingDefinitionsPart;
-                            if (numberingPart == null || numberingPart.Numbering == null)
-                            {
-                                return; // 🔥 Fail gracefully if numbering is missing
-                            }
-                            // 🔹 Get or create the bullet list AbstractNumId **once**
-                            // 🔹 Retrieve existing bullet numbering OR create a new one
-                            int bulletAbstractNumId = numberingPart.Numbering.Elements<AbstractNum>()
-                                .FirstOrDefault(n => n.Elements<Level>().Any(l => l.NumberingFormat.Val == NumberFormatValues.Bullet))?
-                                .AbstractNumberId ?? -1;
+                            // Define the bullet symbol and the left indent (in twentieths of a point, e.g., "720" = 0.5 inches)
+                            string bulletSymbol = "• "; // plain bullet with a trailing space
+                            string leftIndent = "720";  // adjust as needed to match your document's bullet style
 
-                            // If no bullet numbering exists, create a new one
-                            if (bulletAbstractNumId == -1)
-                            {
-                                // Create a new AbstractNumId for bullets if none exist
-                                bulletAbstractNumId = numberingPart.Numbering.Elements<AbstractNum>()
-                                    .Select(n => (int)n.AbstractNumberId.Value)
-                                    .DefaultIfEmpty(0)
-                                    .Max() + 1;
-
-                                var abstractNumBullets = new AbstractNum(
-                                    new Level(
-                                        new NumberingFormat() { Val = NumberFormatValues.Bullet }, // Force bullets
-                                        new LevelText() { Val = "•" },
-                                        new ParagraphProperties(new Indentation() { Left = "720" })
-                                    )
-                                    { LevelIndex = 0 }
-                                )
-                                {
-                                    AbstractNumberId = bulletAbstractNumId
-                                };
-
-                                numberingPart.Numbering.Append(abstractNumBullets);
-                            }
-
-                            int bulletNumberId = numberingPart.Numbering.Elements<NumberingInstance>()
-                             .FirstOrDefault(n => n.AbstractNumId.Val == bulletAbstractNumId)?
-                             .NumberID ?? -1;
-
-                            if (bulletNumberId == -1)
-                            {
-                                bulletNumberId = numberingPart.Numbering.Elements<NumberingInstance>()
-                                    .Select(n => (int)n.NumberID.Value)
-                                    .DefaultIfEmpty(0)
-                                    .Max() + 1;
-
-                                numberingPart.Numbering.Append(new NumberingInstance(new AbstractNumId() { Val = bulletAbstractNumId }) { NumberID = bulletNumberId });
-                            }
-
-                            // 🔹 Now process list items in the loop
                             foreach (XmlNode node in listNodes)
                             {
+                                // Create a new paragraph with a left indent and the bullet symbol prepended.
                                 var listParagraph = new Paragraph(
                                     new ParagraphProperties(
-                                        new NumberingProperties(
-                                            new NumberingLevelReference() { Val = 0 },
-                                            new NumberingId() { Val = bulletNumberId }
-                                        ),
-                                        new ParagraphStyleId() { Val = "ListBullet" }
+                                        new Indentation() { Left = leftIndent }
                                     ),
-                                    new Run(new Text(node.InnerText.Trim()))
+                                    new Run(new Text(bulletSymbol + node.InnerText.Trim()))
                                 );
 
                                 currentElement.InsertAfterSelf(listParagraph);
                                 currentElement = listParagraph;
                             }
 
-
-
                             Console.WriteLine("List inserted successfully");
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine("Error inserting list: " + ex.Message);
+                            Console.WriteLine("Error processing embedded list: " + ex.Message);
                         }
+
+
+
+
+
                     }
                     else
                     {
