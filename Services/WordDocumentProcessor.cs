@@ -143,7 +143,6 @@ namespace DocumentProcessor.Services
             }
         }
 
-
         public void InsertMixedContent(string content, Paragraph paragraph, MainDocumentPart mainDocumentPart)
         {
             try
@@ -217,11 +216,6 @@ namespace DocumentProcessor.Services
                         {
                             Console.WriteLine("Error processing embedded list: " + ex.Message);
                         }
-
-
-
-
-
                     }
                     else
                     {
@@ -239,7 +233,6 @@ namespace DocumentProcessor.Services
                         }
                     }
                 }
-
                 // Remove original paragraph since we've replaced it with new content
                 if (paragraph.Parent != null)
                 {
@@ -361,8 +354,6 @@ namespace DocumentProcessor.Services
                 throw;
             }
         }
-
-
         private async Task<ProcessingResult> PostProcessingProcessText(string text)
         {
             var result = ProcessingResult.FromText(text);
